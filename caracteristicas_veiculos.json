@@ -1,0 +1,121 @@
+{
+  "placa": {
+    "tipo": "string",
+    "descricao": "Identificador único da placa do veículo"
+  },
+  "marca_modelo_tipo": {
+    "tipo": "dict",
+    "descricao": "Mapeamento de marcas para seus modelos e tipos válidos",
+    "valores_possiveis": {
+      "Toyota": {
+        "Corolla": "passeio",
+        "Hilux": "utilitário",
+        "Yaris": "passeio",
+        "SW4": "SUV",
+        "Etios": "passeio"
+      },
+      "Honda": {
+        "Civic": "passeio",
+        "Fit": "passeio",
+        "City": "passeio",
+        "HR-V": "SUV",
+        "Biz": "moto",
+        "CG 160": "moto"
+      },
+      "Volkswagen": {
+        "Gol": "passeio",
+        "Voyage": "passeio",
+        "Polo": "passeio",
+        "Virtus": "passeio",
+        "T-Cross": "SUV"
+      },
+      "Fiat": {
+        "Uno": "passeio",
+        "Argo": "passeio",
+        "Mobi": "passeio",
+        "Toro": "utilitário",
+        "Strada": "utilitário"
+      },
+      "Chevrolet": {
+        "Onix": "passeio",
+        "Prisma": "passeio",
+        "Tracker": "SUV",
+        "Spin": "SUV",
+        "S10": "caminhão"
+      },
+      "Ford": {
+        "Ka": "passeio",
+        "Fiesta": "passeio",
+        "EcoSport": "SUV",
+        "Ranger": "caminhão",
+        "Fusion": "passeio"
+      },
+      "Hyundai": {
+        "HB20": "passeio",
+        "Creta": "SUV",
+        "Tucson": "SUV",
+        "Azera": "passeio"
+      },
+      "Renault": {
+        "Kwid": "passeio",
+        "Sandero": "passeio",
+        "Logan": "passeio",
+        "Duster": "SUV"
+      },
+      "Jeep": {
+        "Renegade": "SUV",
+        "Compass": "SUV",
+        "Commander": "SUV"
+      },
+      "Peugeot": {
+        "208": "passeio",
+        "2008": "SUV",
+        "Partner": "utilitário",
+        "308": "passeio"
+      },
+      "Yamaha": {
+        "Fazer 250": "moto",
+        "XTZ 150": "moto",
+        "Factor 125": "moto"
+      },
+      "Suzuki": {
+        "Yes 125": "moto",
+        "Intruder 250": "moto"
+      }
+    }
+  },
+  "ano": {
+    "tipo": "int",
+    "descricao": "Ano de fabricação do veículo (ex: entre 2005 e 2025)"
+  },
+  "cor": {
+    "tipo": "string",
+    "descricao": "Cor predominante do veículo",
+    "valores_possiveis": ["preto", "branco", "prata", "cinza", "vermelho", "azul", "verde", "amarelo", "marrom", "laranja"]
+  },
+  "categoria": {
+    "tipo": "string",
+    "descricao": "Classificação legal do veículo",
+    "valores_possiveis": ["particular", "aluguel", "oficial", "colecionador"]
+  },
+  "combustivel": {
+    "tipo": "string",
+    "descricao": "Tipo de combustível utilizado",
+    "valores_possiveis": ["gasolina", "álcool", "diesel", "flex", "elétrico"]
+  },
+  "cidade_emplacamento": {
+    "tipo": "string",
+    "descricao": "Cidade de registro do veículo (em SC)",
+    "valores_possiveis": [
+      "Florianópolis", "Joinville", "Blumenau", "Chapecó", "Itajaí",
+      "São José", "Criciúma", "Lages", "Palhoça", "Balneário Camboriú",
+      "Jaraguá do Sul", "Brusque", "Tubarão", "Caçador", "Concórdia",
+      "Xanxerê", "Araranguá", "Rio do Sul", "Laguna", "Canoinhas"
+    ]
+  },
+  "clonado": {
+    "tipo": "int (0 ou 1)",
+    "descricao": "Indica se o veículo está envolvido em simulação de clonagem",
+    "valores_possiveis": [0, 1]
+  }
+}
