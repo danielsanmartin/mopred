@@ -116,14 +116,20 @@ def analisar_resultados():
             fase = "NOVOS PADRÕES"
 
         print(f"\n🪟 JANELA {janela} ({fase}):")
-        print(f"   ┌─────────────┬─────────────┬─────────────┬─────────────┐")
-        print(f"   │   Métrica   │ Tradicional │ Trad+Multi  │ Adaptativo  │ Adapt+Multi │")
-        print(f"   ├─────────────┼─────────────┼─────────────┼─────────────┤")
+        # Definir largura fixa para cada coluna
+        col_widths = [13, 13, 13, 13, 13]
+        def center(text, width):
+            return str(text).center(width)
+        # Cabeçalho
+        print("   " + "┌" + "┬".join(["─"*w for w in col_widths]) + "┐")
+        header = ["Métrica", "Tradicional", "Trad+Multi", "Adaptativo", "Adapt+Multi"]
+        print("   │" + "│".join([center(h, w) for h, w in zip(header, col_widths)]) + "│")
+        print("   " + "├" + "┼".join(["─"*w for w in col_widths]) + "┤")
         def fmt(val):
-            return f"{val:9.3f}" if val is not None else "    N/A   "
-        print(f"   │  Accuracy   │ {fmt(acc_trad)} │ {fmt(acc_trad_multi)} │ {fmt(acc_adapt)} │ {fmt(acc_adapt_multi)} │")
-        print(f"   │  F1-Score   │ {fmt(f1_trad)} │ {fmt(f1_trad_multi)} │ {fmt(f1_adapt)} │ {fmt(f1_adapt_multi)} │")
-        print(f"   └─────────────┴─────────────┴─────────────┴─────────────┘")
+            return center(f"{val:.3f}" if val is not None else "N/A", 13)
+        print("   │" + "│".join([center("Accuracy", 13), fmt(acc_trad), fmt(acc_trad_multi), fmt(acc_adapt), fmt(acc_adapt_multi)]) + "│")
+        print("   │" + "│".join([center("F1-Score", 13), fmt(f1_trad), fmt(f1_trad_multi), fmt(f1_adapt), fmt(f1_adapt_multi)]) + "│")
+        print("   " + "└" + "┴".join(["─"*w for w in col_widths]) + "┘")
         # Impacto da multimodalidade
         print(f"   Impacto da Multimodalidade:")
         trad_delta = f1_trad_multi - f1_trad if f1_trad is not None and f1_trad_multi is not None else None

@@ -410,7 +410,7 @@ def main():
     """Função principal para execução do gerador."""
     try:
         # Configurações
-        TOTAL_VEICULOS = 100000
+        TOTAL_VEICULOS = 10000
         PERCENTUAL_CLONADOS = 0.003
         ARQUIVO_SAIDA = "veiculos_gerados.csv"
         

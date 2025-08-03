@@ -58,6 +58,38 @@ class EventoALPR:
         }
 
 class SimuladorStreamingALPR:
+    def calcular_semelhanca_visual(self, is_clonado, idx, rota_len, percentual_clones_identicos):
+        """
+        Calcula a semelhança visual conforme regras do simulador:
+        - Não clonados: próxima de 1.0 com ruído
+        - Clonados idênticos: próxima de 1.0 com ruído
+        - Clonados não idênticos: pelas 3 características principais + ruído
+        """
+        # Características simuladas (exemplo): tipo, cor, modelo
+        tipo_igual = random.random() < 0.8  # 80% chance de tipo igual
+        cor_igual = random.random() < 0.7   # 70% chance de cor igual
+        modelo_igual = random.random() < 0.6 # 60% chance de modelo igual
+        # Pesos ajustados para totalizar 1.0
+        peso_tipo = 0.33
+        peso_cor = 0.33
+        peso_modelo = 0.34
+
+        if is_clonado:
+            if idx < int(percentual_clones_identicos * rota_len):
+                # Clonado idêntico: semelhança próxima de 1.0 com ruído
+                semelhanca = min(max(random.uniform(0.97, 1.0) + random.normalvariate(0, 0.01), 0), 1)
+            else:
+                # Clonado não idêntico: calcula pelas características + ruído
+                semelhanca = 0
+                semelhanca += peso_tipo if tipo_igual else 0
+                semelhanca += peso_cor if cor_igual else 0
+                semelhanca += peso_modelo if modelo_igual else 0
+                semelhanca += random.normalvariate(0, 0.03)
+                semelhanca = min(max(semelhanca, 0), 1)
+        else:
+            # Não clonado: semelhança próxima de 1.0 com ruído
+            semelhanca = min(max(random.uniform(0.97, 1.0) + random.normalvariate(0, 0.01), 0), 1)
+        return semelhanca
     def __init__(self, config_path: str = "config.json"):
         """
         Inicializa o simulador de streaming ALPR.
@@ -185,16 +217,7 @@ class SimuladorStreamingALPR:
             # Criar eventos
             percentual_clones_identicos = self.config.get('percentual_clones_identicos', 0.3)
             for idx, (sensor, timestamp) in enumerate(zip(rota, timestamps)):
-                # Geração da semelhança visual
-                if is_clonado:
-                    # Para clones, percentual_clones_identicos das passagens = 1, restante aleatório entre 0 e 0.75
-                    if idx < int(percentual_clones_identicos * len(rota)):
-                        semelhanca = 1.0
-                    else:
-                        semelhanca = round(random.uniform(0, 0.75), 3)
-                else:
-                    # Para não clonados, sempre 1
-                    semelhanca = 1.0
+                semelhanca = self.calcular_semelhanca_visual(is_clonado, idx, len(rota), percentual_clones_identicos)
                 evento = EventoALPR(
                     placa=veiculo['placa'],
                     timestamp=timestamp,

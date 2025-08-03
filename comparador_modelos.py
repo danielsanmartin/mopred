@@ -11,8 +11,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 from haversine import haversine
 from river import ensemble, tree, forest
-import warnings
-warnings.filterwarnings('ignore')
+from joblib import Parallel, delayed
+from utils import processar_placa_basico
 
 # Usando River para Random Forest Adaptativo real
 class AdaptiveRandomForestWrapper:
@@ -58,10 +58,13 @@ class AdaptiveRandomForestWrapper:
         return np.array(predictions)
 
 class ComparadorModelos:
-    def __init__(self, simulador_streaming):
+    def __init__(self, simulador_streaming, n_jobs=8):
         self.simulador = simulador_streaming
+        self.n_jobs = n_jobs
         self.modelo_tradicional = None
         self.modelo_tradicional_infracoes = None
+        self.modelo_tradicional_semelhanca = None
+        self.modelo_tradicional_multimodal = None
         self.modelo_adaptativo = AdaptiveRandomForestWrapper(
             n_models=10,
             seed=42
@@ -83,7 +86,8 @@ class ComparadorModelos:
                 n_estimators=100,
                 max_depth=10,
                 random_state=42,
-                n_jobs=-1
+                class_weight='balanced',
+                n_jobs=self.n_jobs
             )
             self.modelo_tradicional_multimodal.fit(X_treino, y_treino)
             print(f"✅ Modelo tradicional multimodal treinado com {len(X_treino):,} amostras")
@@ -93,7 +97,8 @@ class ComparadorModelos:
                 n_estimators=100,
                 max_depth=10,
                 random_state=42,
-                n_jobs=-1
+                class_weight='balanced',
+                n_jobs=self.n_jobs
             )
             self.modelo_tradicional_semelhanca.fit(X_treino, y_treino)
             print(f"✅ Modelo tradicional (com semelhança visual) treinado com {len(X_treino):,} amostras")
@@ -103,7 +108,7 @@ class ComparadorModelos:
                 n_estimators=100,
                 max_depth=10,
                 random_state=42,
-                n_jobs=-1
+                n_jobs=self.n_jobs
             )
             self.modelo_tradicional_infracoes.fit(X_treino, y_treino)
             print(f"✅ Modelo tradicional (com infrações) treinado com {len(X_treino):,} amostras")
@@ -113,7 +118,7 @@ class ComparadorModelos:
                 n_estimators=100,
                 max_depth=10,
                 random_state=42,
-                n_jobs=-1
+                n_jobs=self.n_jobs
             )
             self.modelo_tradicional.fit(X_treino, y_treino)
             print(f"✅ Modelo tradicional treinado com {len(X_treino):,} amostras")
@@ -160,28 +165,42 @@ class ComparadorModelos:
         else:
             modelo = getattr(self, 'modelo_tradicional', None)
 
-        if modelo is not None:
-            y_pred = modelo.predict(X_teste)
-            if usar_infracoes and usar_semelhanca:
-                tipo = 'tradicional_multimodal'
-            elif usar_semelhanca:
-                tipo = 'tradicional_semelhanca'
-            elif usar_infracoes:
-                tipo = 'tradicional_infracoes'
-            else:
-                tipo = 'tradicional'
-            trad_metricas = {
-                'janela': janela_numero,
-                'accuracy': accuracy_score(y_teste, y_pred),
-                'precision': precision_score(y_teste, y_pred, zero_division=0),
-                'recall': recall_score(y_teste, y_pred, zero_division=0),
-                'f1': f1_score(y_teste, y_pred, zero_division=0),
-                'n_amostras': len(y_teste),
-                'n_suspeitos': sum(y_teste),
-                'tipo': tipo
-            }
+        # Seleciona o modelo correto para cada cenário
+        if usar_infracoes and usar_semelhanca:
+            tipo = 'tradicional_multimodal'
+            modelo = getattr(self, 'modelo_tradicional_multimodal', None)
+            X_input = X_teste
+        elif usar_infracoes:
+            tipo = 'tradicional_infracoes'
+            modelo = getattr(self, 'modelo_tradicional_infracoes', None)
+            X_input = X_teste[:, :3]
+        elif usar_semelhanca:
+            tipo = 'tradicional_semelhanca'
+            modelo = getattr(self, 'modelo_tradicional_semelhanca', None)
+            X_input = X_teste[:, :3]
         else:
-            trad_metricas = {'janela': janela_numero, 'accuracy': None, 'precision': None, 'recall': None, 'f1': None, 'n_amostras': len(y_teste), 'n_suspeitos': sum(y_teste), 'tipo': 'tradicional'}
+            tipo = 'tradicional'
+            modelo = getattr(self, 'modelo_tradicional', None)
+            X_input = X_teste[:, :3]
+        if modelo is not None:
+            try:
+                y_pred = modelo.predict(X_input)
+                trad_metricas = {
+                    'janela': janela_numero,
+                    'accuracy': accuracy_score(y_teste, y_pred),
+                    'precision': precision_score(y_teste, y_pred, zero_division=0),
+                    'recall': recall_score(y_teste, y_pred, zero_division=0),
+                    'f1': f1_score(y_teste, y_pred, zero_division=0),
+                    'n_amostras': len(y_teste),
+                    'n_suspeitos': sum(y_teste),
+                    'tipo': tipo
+                }
+            except ValueError as e:
+                print(f"❌ Erro ao avaliar modelo '{tipo}': {e}")
+                trad_metricas = {'janela': janela_numero, 'accuracy': None, 'precision': None, 'recall': None, 'f1': None, 'n_amostras': len(y_teste), 'n_suspeitos': sum(y_teste), 'tipo': tipo}
+        else:
+            print(f"❌ Modelo '{tipo}' não treinado ou não encontrado para avaliação.")
+            trad_metricas = {'janela': janela_numero, 'accuracy': None, 'precision': None, 'recall': None, 'f1': None, 'n_amostras': len(y_teste), 'n_suspeitos': sum(y_teste), 'tipo': tipo}
 
         # Avaliação adaptativa
         adapt_metricas = self._avaliar_adaptativo(X_teste, y_teste, janela_numero, usar_infracoes=usar_infracoes, usar_semelhanca=usar_semelhanca)
@@ -393,53 +412,15 @@ class ComparadorModelos:
         
         placas_unicas = df_janela['placa'].unique()
         
-        for placa in placas_unicas:
-            eventos_placa = df_janela[df_janela['placa'] == placa].sort_values('ts')
-            
-            if len(eventos_placa) < 2:
-                continue
-            
-            # Gerar pares consecutivos
-            for i in range(len(eventos_placa) - 1):
-                evento1 = eventos_placa.iloc[i]
-                evento2 = eventos_placa.iloc[i + 1]
-                
-                # Pular se for a mesma câmera
-                if evento1['cam'] == evento2['cam']:
-                    continue
-                
-                # Calcular features
-                dist_km = haversine(
-                    (evento1['lat'], evento1['lon']),
-                    (evento2['lat'], evento2['lon'])
-                )
-                
-                delta_t_ms = abs(evento2['ts'] - evento1['ts'])
-                delta_t_segundos = delta_t_ms / 1000
-                
-                # Pular pares com tempo muito pequeno
-                if delta_t_segundos < 30:
-                    continue
-                
-                velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-                
-                # Features para o modelo
-                feature_vector = [dist_km, delta_t_segundos, velocidade_kmh]
-                features.append(feature_vector)
-                
-                # Label baseado na velocidade e informação de clonagem
-                is_suspeito = velocidade_kmh > 150 or evento1.get('is_clonado', False)
-                labels.append(1 if is_suspeito else 0)
-                
-                # Informações do par
-                par_info = {
-                    'placa': placa,
-                    'dist_km': dist_km,
-                    'delta_t_segundos': delta_t_segundos,
-                    'velocidade_kmh': velocidade_kmh,
-                    'is_clonado': evento1.get('is_clonado', False)
-                }
-                pares_info.append(par_info)
+        resultados = Parallel(n_jobs=self.n_jobs, backend="multiprocessing")(
+            delayed(processar_placa_basico)(df_janela[df_janela['placa'] == placa].sort_values('ts'))
+            for placa in placas_unicas
+        )
+        features, labels, pares_info = [], [], []
+        for f, l, p in resultados:
+            features.extend(f)
+            labels.extend(l)
+            pares_info.extend(p)
         
         return np.array(features), np.array(labels), pares_info
     

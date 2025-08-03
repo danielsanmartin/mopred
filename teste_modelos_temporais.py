@@ -7,9 +7,16 @@ Script principal para comparar Random Forest tradicional vs. adaptativo.
 
 from simulador_streaming_alpr import SimuladorStreamingALPR
 from comparador_modelos import ComparadorModelos
+import json
 import pandas as pd
 import numpy as np
 from haversine import haversine
+from joblib import Parallel, delayed
+from utils import processar_placa_basico
+try:
+    from imblearn.over_sampling import SMOTE
+except ImportError:
+    SMOTE = None
 
 def simular_mudancas_temporais(simulador):
     """Simula mudanças nos padrões de clonagem ao longo do tempo."""
@@ -51,124 +58,161 @@ def simular_mudancas_temporais(simulador):
     
     return [fase1_eventos, fase2_eventos, fase3_eventos]
 
-def preparar_dados_treino_inicial(fase1_eventos):
-    """Prepara dados de treino inicial a partir da primeira fase."""
+
+# ...existing code...
+
+def preparar_dados_treino_inicial(fase1_eventos, n_jobs):
     print(f"\n🌱 PREPARANDO TREINO INICIAL...")
-    
+
     if not fase1_eventos:
         return np.array([]), np.array([])
-    
-    # Converter eventos para DataFrame
+
     eventos_dict = [evento.to_dict() for evento in fase1_eventos]
     df_treino = pd.DataFrame(eventos_dict)
-    
+
     if len(df_treino) == 0:
         return np.array([]), np.array([])
-    
-    # Gerar features de treino (sem e com infrações)
-    features = []
-    features_infracoes = []
-    features_semelhanca = []
-    labels = []
 
     placas_unicas = df_treino['placa'].unique()
 
-    for placa in placas_unicas:
-        eventos_placa = df_treino[df_treino['placa'] == placa].sort_values('timestamp')
+    # Usar a nova função de processamento básico para treino inicial
+    resultados = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(processar_placa_basico)(df_treino[df_treino['placa'] == placa].sort_values('timestamp'))
+        for placa in placas_unicas
+    )
 
-        if len(eventos_placa) < 2:
-            continue
+    features, labels = [], []
+    features_multimodal = []  # Para armazenar features com 5 dimensões
+    resultados_validos = 0
+    total_features_ignorados = 0
+    total_labels_ignorados = 0
+    for r in resultados:
+        if isinstance(r, (list, tuple)) and len(r) >= 3:
+            f, l, f_semelhanca = r[:3]
+            if len(f) == len(l) and len(f_semelhanca) == len(l):
+                for feat, label, feat_mm in zip(f, l, f_semelhanca):
+                    # Classificação binária:
+                    # 0: não clonado
+                    # 1: clonado (idêntico ou não idêntico)
+                    if label == 0:
+                        labels.append(0)
+                    else:
+                        labels.append(1)
+                    features.append(feat)
+                    features_multimodal.append(feat_mm)
+                resultados_validos += 1
+            else:
+                print(f"⚠️ Inconsistência: {len(f)} features vs {len(l)} labels ignorados para uma placa.")
+                total_features_ignorados += len(f)
+                total_labels_ignorados += len(l)
+        else:
+            print(f"⚠️ Resultado inválido ignorado: {r}")
+    if resultados_validos < len(resultados):
+        print(f"⚠️ {len(resultados) - resultados_validos} resultados ignorados por formato inesperado.")
+    if total_features_ignorados > 0 or total_labels_ignorados > 0:
+        print(f"⚠️ Total ignorado por inconsistência: {total_features_ignorados} features, {total_labels_ignorados} labels.")
 
-        # Gerar pares consecutivos para treino
-        for i in range(len(eventos_placa) - 1):
-            evento1 = eventos_placa.iloc[i]
-            evento2 = eventos_placa.iloc[i + 1]
+    X_treino = np.array(features, dtype=np.float32)
+    X_treino_multimodal = np.array(features_multimodal, dtype=np.float32)  # Features com 5 dimensões
+    y_treino = np.array(labels, dtype=np.int32).ravel()
 
-            # Pular se for a mesma câmera
-            if evento1['cam'] == evento2['cam']:
-                continue
+    # Balanceamento usando SMOTE (binário)
+    return balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal)
 
-            # Calcular features
-            dist_km = haversine(
-                (evento1['lat'], evento1['lon']),
-                (evento2['lat'], evento2['lon'])
-            )
-
-            delta_t_ms = abs(evento2['timestamp'] - evento1['timestamp'])
-            delta_t_segundos = delta_t_ms / 1000
-
-            # Pular pares com tempo muito pequeno
-            if delta_t_segundos < 30:
-                continue
-
-            velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-            semelhanca = evento1.get('semelhanca', 1.0)
-
-            # Features para o modelo
-            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh]
-            features.append(feature_vector)
-            # Features com infrações
-            num_infracoes = evento1.get('num_infracoes', 0)
-            feature_vector_infracoes = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes]
-            features_infracoes.append(feature_vector_infracoes)
-            # Features com semelhança
-            feature_vector_semelhanca = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
-            features_semelhanca.append(feature_vector_semelhanca)
-
-            # Label baseado na velocidade e informação de clonagem (conservador para treino)
-            is_suspeito = velocidade_kmh > 200 or evento1.get('is_clonado', False)
-            labels.append(1 if is_suspeito else 0)
-    
-    X_treino = np.array(features)
-    X_treino_infracoes = np.array(features_infracoes)
-    X_treino_semelhanca = np.array(features_semelhanca)
-    y_treino = np.array(labels)
-
-    print(f"✅ Dados de treino preparados:")
-    print(f"   📊 {len(X_treino):,} pares de eventos")
-    print(f"   ⚠️ {sum(y_treino):,} casos suspeitos ({sum(y_treino)/len(y_treino)*100:.1f}%)")
-    print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in features_semelhanca]):.3f}")
-
-    # Sempre retorna o vetor completo de features (com infrações e semelhança)
-    return X_treino_semelhanca, y_treino, X_treino_infracoes, X_treino_semelhanca
+def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal):
+    """
+    Aplica balanceamento SMOTE binário nos dados de treino.
+    Retorna os dados balanceados ou originais se não for possível balancear.
+    """
+    # Calcular número de amostras por classe
+    if SMOTE is None:
+        print("⚠️ imbalanced-learn não instalado. Dados não balanceados.")
+        print(f"✅ Dados de treino preparados:")
+        print(f"   📊 {len(X_treino):,} pares de eventos")
+        for classe in [0, 1]:
+            print(f"   Classe {classe}: {np.sum(y_treino == classe)} exemplos")
+        if len(features_multimodal) > 0:
+            print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in features_multimodal]):.3f}")
+        else:
+            print(f"   🧬 Média de semelhança: N/A")
+        return X_treino, X_treino_multimodal, y_treino
+    unique, counts = np.unique(y_treino, return_counts=True)
+    min_class_count = np.min(counts) if len(counts) > 0 else 0
+    # Só aplica SMOTE se todas as classes tiverem pelo menos 2 exemplos
+    if np.all(counts >= 2):
+        k_neighbors = max(1, min(min_class_count - 1, 5))
+        smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+        X_treino_bal, y_treino_bal = smote.fit_resample(X_treino, y_treino)
+        X_treino_multimodal_bal, y_treino_multimodal_bal = smote.fit_resample(X_treino_multimodal, y_treino)
+        print(f"✅ Dados balanceados com SMOTE (k_neighbors={k_neighbors}):")
+        print(f"   📊 {len(X_treino_bal):,} pares de eventos (tradicional)")
+        print(f"   📊 {len(X_treino_multimodal_bal):,} pares de eventos (multimodal)")
+        # Contagem por classe
+        for classe in [0, 1]:
+            print(f"   Classe {classe}: {np.sum(y_treino_bal == classe)} exemplos")
+        if len(X_treino_multimodal_bal) > 0:
+            print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in X_treino_multimodal_bal]):.3f}")
+        else:
+            print(f"   🧬 Média de semelhança: N/A")
+        return X_treino_bal, X_treino_multimodal_bal, y_treino_bal
+    else:
+        print("⚠️ SMOTE não aplicado: pelo menos uma classe tem menos de 2 exemplos.")
+        print(f"✅ Dados de treino preparados (sem balanceamento):")
+        print(f"   📊 {len(X_treino):,} pares de eventos")
+        for classe in [0, 1]:
+            print(f"   Classe {classe}: {np.sum(y_treino == classe)} exemplos")
+        if len(features_multimodal) > 0:
+            print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in features_multimodal]):.3f}")
+        else:
+            print(f"   🧬 Média de semelhança: N/A")
+        return X_treino, X_treino_multimodal, y_treino
 
 def main():
     """Função principal do teste."""
     print("🚀 INICIANDO TESTE DE MODELOS TEMPORAIS")
     print("=" * 60)
-    
+
+    # Ler n_jobs do config.json
+    with open("config.json", "r", encoding="utf-8") as f:
+        config = json.load(f)
+    n_jobs = config.get("n_jobs", 8)
+
     try:
         # 1. Inicializar simulador
         simulador = SimuladorStreamingALPR("config.json")
         eventos = simulador.executar_simulacao_completa()
-        
+
         if not eventos:
             print("❌ Nenhum evento gerado pelo simulador")
             return
-        
+
         # 2. Simular mudanças temporais
         fases = simular_mudancas_temporais(simulador)
-        
+
         if not fases:
             print("❌ Erro ao criar fases temporais")
             return
-        
+
         # 3. Preparar dados de treino inicial (fase 1)
-        X_treino, y_treino, X_treino_infracoes, X_treino_semelhanca = preparar_dados_treino_inicial(fases[0])
+        X_treino, X_treino_multimodal, y_treino = preparar_dados_treino_inicial(fases[0], n_jobs)
 
         if len(X_treino) == 0:
             print("❌ Nenhum dado de treino gerado")
             return
 
         # 4. Inicializar comparador
-        comparador = ComparadorModelos(simulador)
+        comparador = ComparadorModelos(simulador, n_jobs=n_jobs)
 
-        # 5. Treinar todos os cenários tradicionais
+        # 5. Checagem de shapes antes do treino
+        print(f"\n🔎 Shape X_treino: {X_treino.shape}, Shape X_treino_multimodal: {X_treino_multimodal.shape}, Shape y_treino: {y_treino.shape}")
+        if X_treino.shape[0] != y_treino.shape[0]:
+            print(f"❌ Inconsistência: X_treino tem {X_treino.shape[0]} linhas, y_treino tem {y_treino.shape[0]} labels. Treino abortado.")
+            return
         print("\n🌟 Treinando modelo tradicional (apenas features básicas)...")
-        comparador.treinar_modelo_tradicional(X_treino[:, :3], y_treino, usar_infracoes=False, usar_semelhanca=False)
+        comparador.treinar_modelo_tradicional(X_treino, y_treino, usar_infracoes=False, usar_semelhanca=False)
         print("\n🌟 Treinando modelo tradicional (multimodal: infrações + semelhança)...")
-        comparador.treinar_modelo_tradicional(X_treino, y_treino, usar_infracoes=True, usar_semelhanca=True)
-        
+        comparador.treinar_modelo_tradicional(X_treino_multimodal, y_treino, usar_infracoes=True, usar_semelhanca=True)
+
         # 6. Testar em janelas temporais
         print(f"\n🕒 TESTANDO EM JANELAS TEMPORAIS...")
 
@@ -209,7 +253,7 @@ def main():
                 comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=True, usar_semelhanca=True)
 
                 janela_contador += 1
-        
+
         # 7. Gerar relatório final (inclui precisão, recall, f1 para todos cenários)
         comparador.gerar_relatorio_final()
 
@@ -257,7 +301,9 @@ def main():
                     explainer = shap.TreeExplainer(modelo_rf)
                     shap_values = explainer.shap_values(X_teste)
                     print("\nImportância global das features:")
-                    for i, nome in enumerate(feature_names):
+                    n_features_modelo = len(modelo_rf.feature_importances_)
+                    for i in range(min(len(feature_names), n_features_modelo)):
+                        nome = feature_names[i]
                         print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
                     print("\nExemplo de explicação SHAP para os primeiros casos (relatório amigável):")
                     preds = modelo_rf.predict(X_teste)
@@ -326,7 +372,7 @@ def main():
         # 8. Teste adicional com janelas do simulador streaming
         print(f"\n🪟 TESTE ADICIONAL COM STREAMING POR JANELAS...")
         testar_streaming_janelas(simulador, comparador)
-        
+
     except Exception as e:
         print(f"❌ Erro durante o teste: {e}")
         import traceback
