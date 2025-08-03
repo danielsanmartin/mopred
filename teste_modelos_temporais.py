@@ -315,6 +315,19 @@ def main():
                         "semelhanca": "Semelhança visual (0-1)"
                     }
                     clonados_exibidos = 0
+                    # Definir larguras fixas para cada coluna (primeira maior, demais mais estreitas)
+                    col_widths = [38, 12, 12, 22]
+                    def fmt_cell(val, width, align='center'):
+                        val_str = str(val)
+                        if align == 'center':
+                            return val_str.center(width)
+                        elif align == 'right':
+                            return val_str.rjust(width)
+                        else:
+                            return val_str.ljust(width)
+                    header = ["Característica", "Valor", "Impacto SHAP", "Interpretação"]
+                    print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+                    print("|" + "|".join(["-"*w for w in col_widths]) + "|")
                     for idx in range(len(X_teste)):
                         if preds[idx] != 1:
                             continue
@@ -322,22 +335,21 @@ def main():
                         if clonados_exibidos > 5:
                             break
                         print(f"\nCaso {idx+1} - Predição: CLONADO")
+                        # Imprimir cabeçalho da tabela para cada caso
+                        print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+                        print("|" + "|".join(["-"*w for w in col_widths]) + "|")
                         shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
                         feat_vals = X_teste[idx]
-                        print("| Característica           | Valor        | Impacto SHAP | Interpretação           |")
-                        print("|--------------------------|--------------|--------------|-------------------------|")
                         resumo = []
                         for i, nome in enumerate(feature_names):
                             nome_pt = traducao.get(nome, nome)
-                            valor = feat_vals[i]
+                            valor = f"{feat_vals[i]:.3f}"
                             impacto_raw = shap_vals[i]
                             if isinstance(impacto_raw, (np.ndarray, list)):
-                                if len(impacto_raw) > 1:
-                                    impacto_val = impacto_raw[1]
-                                else:
-                                    impacto_val = impacto_raw[0]
+                                impacto_val = impacto_raw[1] if len(impacto_raw) > 1 else impacto_raw[0]
                             else:
                                 impacto_val = impacto_raw
+                            impacto_fmt = f"{impacto_val:.3f}"
                             if abs(impacto_val) > 0.05:
                                 emoji = "🔴"
                                 interpret = "Alto impacto"
@@ -357,7 +369,11 @@ def main():
                             else:
                                 emoji = "🟢"
                                 interpret = "Baixo impacto"
-                            print(f"| {nome_pt:24} | {valor:10.3f} | {impacto_val:10.3f} | {emoji} {interpret:18} |")
+                            print("|" +
+                                  fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
+                                  fmt_cell(valor, col_widths[1], 'right') + "|" +
+                                  fmt_cell(impacto_fmt, col_widths[2], 'right') + "|" +
+                                  fmt_cell(f"{emoji} {interpret}", col_widths[3], 'left') + "|")
                         if resumo:
                             print("Resumo: " + " ".join(resumo))
                         else:
@@ -470,7 +486,7 @@ def testar_streaming_janelas(simulador, comparador):
                 print("\nImportância global das features:")
                 for i, nome in enumerate(feature_names):
                     print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
-                print("\nExemplo de explicação SHAP para os primeiros casos clonados do streaming:")
+                print("\nExemplo de explicação SHAP para os primeiros casos clonados do streaming (formato amigável):")
                 preds = modelo_rf.predict(X_teste)
                 traducao = {
                     "dist_km": "Distância entre câmeras (km)",
@@ -480,6 +496,19 @@ def testar_streaming_janelas(simulador, comparador):
                     "semelhanca": "Semelhança visual (0-1)"
                 }
                 clonados_exibidos = 0
+                # Usar o mesmo padrão de larguras do relatório XAI principal
+                col_widths = [38, 12, 12, 22]
+                def fmt_cell(val, width, align='center'):
+                    val_str = str(val)
+                    if align == 'center':
+                        return val_str.center(width)
+                    elif align == 'right':
+                        return val_str.rjust(width)
+                    else:
+                        return val_str.ljust(width)
+                header = ["Característica", "Valor", "Impacto SHAP", "Interpretação"]
+                print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+                print("|" + "|".join(["-"*w for w in col_widths]) + "|")
                 for idx in range(len(X_teste)):
                     if preds[idx] != 1:
                         continue
@@ -487,22 +516,21 @@ def testar_streaming_janelas(simulador, comparador):
                     if clonados_exibidos > 5:
                         break
                     print(f"\nCaso {idx+1} - Predição: CLONADO")
+                    # Imprimir cabeçalho da tabela para cada caso
+                    print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+                    print("|" + "|".join(["-"*w for w in col_widths]) + "|")
                     shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
                     feat_vals = X_teste[idx]
-                    print("| Característica           | Valor        | Impacto SHAP | Interpretação           |")
-                    print("|--------------------------|--------------|--------------|-------------------------|")
                     resumo = []
                     for i, nome in enumerate(feature_names):
                         nome_pt = traducao.get(nome, nome)
-                        valor = feat_vals[i]
+                        valor = f"{feat_vals[i]:.3f}"
                         impacto_raw = shap_vals[i]
                         if isinstance(impacto_raw, (np.ndarray, list)):
-                            if len(impacto_raw) > 1:
-                                impacto_val = impacto_raw[1]
-                            else:
-                                impacto_val = impacto_raw[0]
+                            impacto_val = impacto_raw[1] if len(impacto_raw) > 1 else impacto_raw[0]
                         else:
                             impacto_val = impacto_raw
+                        impacto_fmt = f"{impacto_val:.3f}"
                         if abs(impacto_val) > 0.05:
                             emoji = "🔴"
                             interpret = "Alto impacto"
@@ -522,7 +550,11 @@ def testar_streaming_janelas(simulador, comparador):
                         else:
                             emoji = "🟢"
                             interpret = "Baixo impacto"
-                        print(f"| {nome_pt:24} | {valor:10.3f} | {impacto_val:10.3f} | {emoji} {interpret:18} |")
+                        print("|" +
+                              fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
+                              fmt_cell(valor, col_widths[1], 'right') + "|" +
+                              fmt_cell(impacto_fmt, col_widths[2], 'right') + "|" +
+                              fmt_cell(f"{emoji} {interpret}", col_widths[3], 'left') + "|")
                     if resumo:
                         print("Resumo: " + " ".join(resumo))
                     else:
