@@ -68,40 +68,42 @@ def preparar_dados_treino_inicial(fase1_eventos):
     # Gerar features de treino (sem e com infrações)
     features = []
     features_infracoes = []
+    features_semelhanca = []
     labels = []
-    
+
     placas_unicas = df_treino['placa'].unique()
-    
+
     for placa in placas_unicas:
         eventos_placa = df_treino[df_treino['placa'] == placa].sort_values('timestamp')
-        
+
         if len(eventos_placa) < 2:
             continue
-        
+
         # Gerar pares consecutivos para treino
         for i in range(len(eventos_placa) - 1):
             evento1 = eventos_placa.iloc[i]
             evento2 = eventos_placa.iloc[i + 1]
-            
+
             # Pular se for a mesma câmera
             if evento1['cam'] == evento2['cam']:
                 continue
-            
+
             # Calcular features
             dist_km = haversine(
                 (evento1['lat'], evento1['lon']),
                 (evento2['lat'], evento2['lon'])
             )
-            
+
             delta_t_ms = abs(evento2['timestamp'] - evento1['timestamp'])
             delta_t_segundos = delta_t_ms / 1000
-            
+
             # Pular pares com tempo muito pequeno
             if delta_t_segundos < 30:
                 continue
-            
+
             velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-            
+            semelhanca = evento1.get('semelhanca', 1.0)
+
             # Features para o modelo
             feature_vector = [dist_km, delta_t_segundos, velocidade_kmh]
             features.append(feature_vector)
@@ -109,20 +111,26 @@ def preparar_dados_treino_inicial(fase1_eventos):
             num_infracoes = evento1.get('num_infracoes', 0)
             feature_vector_infracoes = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes]
             features_infracoes.append(feature_vector_infracoes)
-            
+            # Features com semelhança
+            feature_vector_semelhanca = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
+            features_semelhanca.append(feature_vector_semelhanca)
+
             # Label baseado na velocidade e informação de clonagem (conservador para treino)
             is_suspeito = velocidade_kmh > 200 or evento1.get('is_clonado', False)
             labels.append(1 if is_suspeito else 0)
     
     X_treino = np.array(features)
     X_treino_infracoes = np.array(features_infracoes)
+    X_treino_semelhanca = np.array(features_semelhanca)
     y_treino = np.array(labels)
-    
+
     print(f"✅ Dados de treino preparados:")
     print(f"   📊 {len(X_treino):,} pares de eventos")
     print(f"   ⚠️ {sum(y_treino):,} casos suspeitos ({sum(y_treino)/len(y_treino)*100:.1f}%)")
-    
-    return X_treino, y_treino, X_treino_infracoes
+    print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in features_semelhanca]):.3f}")
+
+    # Sempre retorna o vetor completo de features (com infrações e semelhança)
+    return X_treino_semelhanca, y_treino, X_treino_infracoes, X_treino_semelhanca
 
 def main():
     """Função principal do teste."""
@@ -146,68 +154,63 @@ def main():
             return
         
         # 3. Preparar dados de treino inicial (fase 1)
-        X_treino, y_treino, X_treino_infracoes = preparar_dados_treino_inicial(fases[0])
-        
+        X_treino, y_treino, X_treino_infracoes, X_treino_semelhanca = preparar_dados_treino_inicial(fases[0])
+
         if len(X_treino) == 0:
             print("❌ Nenhum dado de treino gerado")
             return
-        
+
         # 4. Inicializar comparador
         comparador = ComparadorModelos(simulador)
-        
-        # 5. Treinar modelo tradicional apenas uma vez (sem infrações)
-        comparador.treinar_modelo_tradicional(X_treino, y_treino, usar_infracoes=False)
-        # 5b. Treinar modelo tradicional com infrações
-        print("\n🌟 Treinando modelo tradicional (com infrações)...")
-        comparador.treinar_modelo_tradicional(X_treino_infracoes, y_treino, usar_infracoes=True)
+
+        # 5. Treinar todos os cenários tradicionais
+        print("\n🌟 Treinando modelo tradicional (apenas features básicas)...")
+        comparador.treinar_modelo_tradicional(X_treino[:, :3], y_treino, usar_infracoes=False, usar_semelhanca=False)
+        print("\n🌟 Treinando modelo tradicional (multimodal: infrações + semelhança)...")
+        comparador.treinar_modelo_tradicional(X_treino, y_treino, usar_infracoes=True, usar_semelhanca=True)
         
         # 6. Testar em janelas temporais
         print(f"\n🕒 TESTANDO EM JANELAS TEMPORAIS...")
-        
+
         janela_contador = 1
-        
+
         for i, fase_eventos in enumerate(fases, 1):
             print(f"\n{'='*20} FASE {i} {'='*20}")
-            
+
             if not fase_eventos:
                 print(f"⚠️ Fase {i} vazia, pulando...")
                 continue
-            
+
             # Dividir fase em sub-janelas para análise mais granular
             tamanho_subjanela = max(1, len(fase_eventos) // 3)
-            
+
             for j in range(3):
                 inicio_janela = j * tamanho_subjanela
                 fim_janela = (j + 1) * tamanho_subjanela if j < 2 else len(fase_eventos)
-                
+
                 if inicio_janela >= len(fase_eventos):
                     break
-                
+
                 janela_eventos = fase_eventos[inicio_janela:fim_janela]
-                
+
                 if len(janela_eventos) < 10:  # Mínimo de eventos para análise
                     print(f"⚠️ Janela {janela_contador} muito pequena ({len(janela_eventos)} eventos), pulando...")
                     janela_contador += 1
                     continue
-                
+
                 # Processar janela para modelo adaptativo (treino incremental)
                 # Somente a partir da segunda janela (primeira é baseline)
                 if janela_contador > 1:
-                    comparador.processar_janela_adaptativo(janela_eventos)
-                    # Novo: processar janela para modelo adaptativo com infrações
-                    comparador.processar_janela_adaptativo(janela_eventos, usar_infracoes=True)
-                
-                # Avaliar ambos os modelos
-                trad_metricas, adapt_metricas = comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=False)
-                # Avaliar modelo tradicional com infrações
-                trad_metricas_infracoes, adapt_metricas_infracoes = comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=True)
-                
-                if trad_metricas is None or adapt_metricas is None:
-                    print(f"⚠️ Falha na avaliação da janela {janela_contador}")
-                
+                    comparador.processar_janela_adaptativo(janela_eventos, usar_infracoes=False, usar_semelhanca=False)
+                    comparador.processar_janela_adaptativo(janela_eventos, usar_infracoes=True, usar_semelhanca=True)
+
+                # Avaliar todos os modelos e salvar métricas para todos cenários
+                comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=False, usar_semelhanca=False)
+                comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=True, usar_semelhanca=True)
+
                 janela_contador += 1
         
-        # 7. Gerar relatório final
+        # 7. Gerar relatório final (inclui precisão, recall, f1 para todos cenários)
         comparador.gerar_relatorio_final()
 
         # 7b. Explicabilidade XAI usando SHAP para o modelo tradicional
@@ -218,26 +221,16 @@ def main():
             import subprocess; subprocess.check_call(["pip", "install", "shap"])
             import shap
 
-        print("\n🔎 EXPLICABILIDADE (XAI) PARA RANDOM FOREST TRADICIONAL:")
-        modelo_rf = getattr(comparador, "modelo_tradicional", None)
+        print("\n🔎 EXPLICABILIDADE (XAI) PARA RANDOM FOREST TRADICIONAL MULTIMODAL:")
+        modelo_rf = getattr(comparador, "modelo_tradicional_multimodal", None)
         if modelo_rf is not None:
-            # Detectar número de features do modelo
             n_features = getattr(modelo_rf, "n_features_in_", None)
             if n_features is None:
-                n_features = modelo_rf.n_features_ if hasattr(modelo_rf, "n_features_") else 3
-            # Ajustar nomes das features
-            if n_features == 3:
-                feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh"]
-            elif n_features == 4:
-                feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes"]
-            else:
-                feature_names = [f"feature_{i+1}" for i in range(n_features)]
-
-            # Usar a última janela de eventos para explicação
+                n_features = modelo_rf.n_features_ if hasattr(modelo_rf, "n_features_") else 5
+            feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
             if len(fases) > 0 and len(fases[-1]) > 0:
                 eventos_dict = [evento.to_dict() for evento in fases[-1]]
                 df_teste = pd.DataFrame(eventos_dict)
-                # Gerar features como no treino
                 features = []
                 placas_unicas = df_teste['placa'].unique()
                 for placa in placas_unicas:
@@ -255,13 +248,9 @@ def main():
                         if delta_t_segundos < 30:
                             continue
                         velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-                        if n_features == 3:
-                            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh]
-                        elif n_features == 4:
-                            num_infracoes = evento1.get('num_infracoes', 0)
-                            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes]
-                        else:
-                            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh] + [0]*(n_features-3)
+                        num_infracoes = evento1.get('num_infracoes', 0)
+                        semelhanca = evento1.get('semelhanca', 1.0)
+                        feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
                         features.append(feature_vector)
                 X_teste = np.array(features)
                 if len(X_teste) > 0:
@@ -272,12 +261,12 @@ def main():
                         print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
                     print("\nExemplo de explicação SHAP para os primeiros casos (relatório amigável):")
                     preds = modelo_rf.predict(X_teste)
-                    # Tradução das features
                     traducao = {
                         "dist_km": "Distância entre câmeras (km)",
                         "delta_t_segundos": "Tempo entre leituras (segundos)",
                         "velocidade_kmh": "Velocidade estimada (km/h)",
-                        "num_infracoes": "Número de infrações"
+                        "num_infracoes": "Número de infrações",
+                        "semelhanca": "Semelhança visual (0-1)"
                     }
                     clonados_exibidos = 0
                     for idx in range(len(X_teste)):
@@ -287,7 +276,6 @@ def main():
                         if clonados_exibidos > 5:
                             break
                         print(f"\nCaso {idx+1} - Predição: CLONADO")
-                        # Seleciona os valores SHAP corretos
                         shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
                         feat_vals = X_teste[idx]
                         print("| Característica           | Valor        | Impacto SHAP | Interpretação           |")
@@ -296,7 +284,6 @@ def main():
                         for i, nome in enumerate(feature_names):
                             nome_pt = traducao.get(nome, nome)
                             valor = feat_vals[i]
-                            # Se shap_vals[i] for array, pega o valor da classe positiva (índice 1), senão usa direto
                             impacto_raw = shap_vals[i]
                             if isinstance(impacto_raw, (np.ndarray, list)):
                                 if len(impacto_raw) > 1:
@@ -308,10 +295,19 @@ def main():
                             if abs(impacto_val) > 0.05:
                                 emoji = "🔴"
                                 interpret = "Alto impacto"
-                                resumo.append(f"{nome_pt} teve forte influência na decisão.")
+                                if nome == "num_infracoes":
+                                    resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
+                                elif nome == "semelhanca":
+                                    resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
+                                else:
+                                    resumo.append(f"{nome_pt} teve forte influência na decisão.")
                             elif abs(impacto_val) > 0.01:
                                 emoji = "🟡"
                                 interpret = "Impacto moderado"
+                                if nome == "num_infracoes":
+                                    resumo.append("O número de infrações teve impacto moderado na decisão.")
+                                elif nome == "semelhanca":
+                                    resumo.append("A semelhança visual teve impacto moderado na decisão.")
                             else:
                                 emoji = "🟢"
                                 interpret = "Baixo impacto"
@@ -325,7 +321,7 @@ def main():
             else:
                 print("Sem dados de teste para explicação XAI.")
         else:
-            print("Modelo tradicional não encontrado para XAI.")
+            print("Modelo tradicional multimodal não encontrado para XAI.")
 
         # 8. Teste adicional com janelas do simulador streaming
         print(f"\n🪟 TESTE ADICIONAL COM STREAMING POR JANELAS...")
@@ -380,7 +376,7 @@ def testar_streaming_janelas(simulador, comparador):
         print(f"✅ Teste de streaming concluído com {janelas_processadas} janelas processadas")
 
         # Explicabilidade SHAP para casos clonados do streaming
-        modelo_rf = getattr(comparador, "modelo_tradicional", None)
+        modelo_rf = getattr(comparador, "modelo_tradicional_multimodal", None)
         if modelo_rf is not None:
             try:
                 import shap
@@ -389,8 +385,7 @@ def testar_streaming_janelas(simulador, comparador):
                 import subprocess; subprocess.check_call(["pip", "install", "shap"])
                 import shap
 
-            print("\n🔎 EXPLICABILIDADE (XAI) PARA CASOS CLONADOS DO STREAMING:")
-            # Coletar todos eventos das janelas do streaming
+            print("\n🔎 EXPLICABILIDADE (XAI) PARA CASOS CLONADOS DO STREAMING (MULTIMODAL):")
             eventos_streaming = []
             janelas_stream = simulador.streaming_janelas_temporais(tamanho_janela_horas=2.0)
             for janela_eventos in janelas_stream:
@@ -400,16 +395,7 @@ def testar_streaming_janelas(simulador, comparador):
                 return
             eventos_dict = [evento.to_dict() for evento in eventos_streaming]
             df_teste = pd.DataFrame(eventos_dict)
-            # Gerar features como no treino
-            n_features = getattr(modelo_rf, "n_features_in_", None)
-            if n_features is None:
-                n_features = modelo_rf.n_features_ if hasattr(modelo_rf, "n_features_") else 3
-            if n_features == 3:
-                feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh"]
-            elif n_features == 4:
-                feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes"]
-            else:
-                feature_names = [f"feature_{i+1}" for i in range(n_features)]
+            feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
             features = []
             placas_unicas = df_teste['placa'].unique()
             for placa in placas_unicas:
@@ -427,13 +413,9 @@ def testar_streaming_janelas(simulador, comparador):
                     if delta_t_segundos < 30:
                         continue
                     velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-                    if n_features == 3:
-                        feature_vector = [dist_km, delta_t_segundos, velocidade_kmh]
-                    elif n_features == 4:
-                        num_infracoes = evento1.get('num_infracoes', 0)
-                        feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes]
-                    else:
-                        feature_vector = [dist_km, delta_t_segundos, velocidade_kmh] + [0]*(n_features-3)
+                    num_infracoes = evento1.get('num_infracoes', 0)
+                    semelhanca = evento1.get('semelhanca', 1.0)
+                    feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
                     features.append(feature_vector)
             X_teste = np.array(features)
             if len(X_teste) > 0:
@@ -448,7 +430,8 @@ def testar_streaming_janelas(simulador, comparador):
                     "dist_km": "Distância entre câmeras (km)",
                     "delta_t_segundos": "Tempo entre leituras (segundos)",
                     "velocidade_kmh": "Velocidade estimada (km/h)",
-                    "num_infracoes": "Número de infrações"
+                    "num_infracoes": "Número de infrações",
+                    "semelhanca": "Semelhança visual (0-1)"
                 }
                 clonados_exibidos = 0
                 for idx in range(len(X_teste)):
@@ -477,10 +460,19 @@ def testar_streaming_janelas(simulador, comparador):
                         if abs(impacto_val) > 0.05:
                             emoji = "🔴"
                             interpret = "Alto impacto"
-                            resumo.append(f"{nome_pt} teve forte influência na decisão.")
+                            if nome == "num_infracoes":
+                                resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
+                            elif nome == "semelhanca":
+                                resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
+                            else:
+                                resumo.append(f"{nome_pt} teve forte influência na decisão.")
                         elif abs(impacto_val) > 0.01:
                             emoji = "🟡"
                             interpret = "Impacto moderado"
+                            if nome == "num_infracoes":
+                                resumo.append("O número de infrações teve impacto moderado na decisão.")
+                            elif nome == "semelhanca":
+                                resumo.append("A semelhança visual teve impacto moderado na decisão.")
                         else:
                             emoji = "🟢"
                             interpret = "Baixo impacto"

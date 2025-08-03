@@ -40,6 +40,7 @@ class EventoALPR:
     lon: float
     is_clonado: bool = False
     num_infracoes: int = 0
+    semelhanca: float = 1.0
 
     def to_dict(self) -> Dict:
         """Converte para dicionário."""
@@ -52,7 +53,8 @@ class EventoALPR:
             'lon': self.lon,
             'timestamp_legivel': pd.to_datetime(self.timestamp, unit='ms').strftime('%Y-%m-%d %H:%M:%S'),
             'is_clonado': self.is_clonado,
-            'num_infracoes': self.num_infracoes
+            'num_infracoes': self.num_infracoes,
+            'semelhanca': self.semelhanca
         }
 
 class SimuladorStreamingALPR:
@@ -181,7 +183,18 @@ class SimuladorStreamingALPR:
             timestamps = self.gerar_timestamps_rota(rota, is_clonado, timestamp_inicio, intervalo_total_ms)
 
             # Criar eventos
-            for sensor, timestamp in zip(rota, timestamps):
+            percentual_clones_identicos = self.config.get('percentual_clones_identicos', 0.3)
+            for idx, (sensor, timestamp) in enumerate(zip(rota, timestamps)):
+                # Geração da semelhança visual
+                if is_clonado:
+                    # Para clones, percentual_clones_identicos das passagens = 1, restante aleatório entre 0 e 0.75
+                    if idx < int(percentual_clones_identicos * len(rota)):
+                        semelhanca = 1.0
+                    else:
+                        semelhanca = round(random.uniform(0, 0.75), 3)
+                else:
+                    # Para não clonados, sempre 1
+                    semelhanca = 1.0
                 evento = EventoALPR(
                     placa=veiculo['placa'],
                     timestamp=timestamp,
@@ -190,7 +203,8 @@ class SimuladorStreamingALPR:
                     lat=sensor['lat'],
                     lon=sensor['lon'],
                     is_clonado=is_clonado,
-                    num_infracoes=num_infracoes
+                    num_infracoes=num_infracoes,
+                    semelhanca=semelhanca
                 )
                 eventos.append(evento)
 
@@ -476,15 +490,17 @@ class SimuladorStreamingALPR:
         
         eventos_dict = [evento.to_dict() for evento in self.eventos_gerados]
         df_eventos = pd.DataFrame(eventos_dict)
-        
+        # Garante que a coluna 'semelhanca' está presente e exportada
+        if 'semelhanca' not in df_eventos.columns:
+            df_eventos['semelhanca'] = 1.0
         df_eventos.to_csv(arquivo_saida, index=False, encoding='utf-8')
-        
         print(f"📁 Arquivo salvo: {arquivo_saida}")
         print(f"📊 Estatísticas dos eventos:")
         print(f"   🚗 Total de eventos: {len(df_eventos):,}")
         print(f"   🏷️ Placas distintas: {df_eventos['placa'].nunique():,}")
         print(f"   📡 Câmeras utilizadas: {df_eventos['cam'].nunique()}")
         print(f"   ⚠️ Eventos de veículos clonados: {df_eventos['is_clonado'].sum():,}")
+        print(f"   🧬 Média de semelhança: {df_eventos['semelhanca'].mean():.3f}")
     
     def executar_simulacao_completa(self):
         """Executa a simulação completa e gera os eventos."""
