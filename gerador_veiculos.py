@@ -409,37 +409,39 @@ class GeradorVeiculos:
 def main():
     """Função principal para execução do gerador."""
     try:
-        # Configurações
-        TOTAL_VEICULOS = 10000
-        PERCENTUAL_CLONADOS = 0.003
+        # Ler configurações do config.json
+        import json
+        CONFIG_PATH = "config.json"
         ARQUIVO_SAIDA = "veiculos_gerados.csv"
-        
+        # Valores padrão
+        TOTAL_VEICULOS = 1000
+        PERCENTUAL_CLONADOS = 0.003
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            TOTAL_VEICULOS = config.get("total_veiculos", TOTAL_VEICULOS)
+            PERCENTUAL_CLONADOS = config.get("percentual_clonados", PERCENTUAL_CLONADOS)
         print(f"🏭 Iniciando geração de veículos simulados")
         print(f"📋 Configurações:")
         print(f"   Total de veículos: {TOTAL_VEICULOS:,}")
         print(f"   Percentual clonados: {PERCENTUAL_CLONADOS:.1%}")
         print(f"   Arquivo de saída: {ARQUIVO_SAIDA}")
         print()
-        
         # Inicializa gerador
         gerador = GeradorVeiculos("caracteristicas_veiculos.json")
-        
         # Gera conjunto de veículos
         df_veiculos = gerador.gerar_conjunto_veiculos(
             total=TOTAL_VEICULOS,
             percentual_clonados=PERCENTUAL_CLONADOS
         )
-        
         # Valida os dados
         dados_validos = gerador.validar_dados(df_veiculos)
-        
         if dados_validos:
             # Salva arquivo CSV
             gerador.salvar_csv(df_veiculos, ARQUIVO_SAIDA)
             print(f"\n🎉 Processo concluído com sucesso!")
         else:
             print(f"\n❌ Processo interrompido devido a erros de validação.")
-            
     except Exception as e:
         print(f"❌ Erro durante a geração: {e}")
         raise
