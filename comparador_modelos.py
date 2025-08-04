@@ -166,22 +166,23 @@ class ComparadorModelos:
             modelo = getattr(self, 'modelo_tradicional', None)
 
         # Seleciona o modelo correto para cada cenário
+        # Only evaluate models that were actually trained
         if usar_infracoes and usar_semelhanca:
             tipo = 'tradicional_multimodal'
             modelo = getattr(self, 'modelo_tradicional_multimodal', None)
-            X_input = X_teste
-        elif usar_infracoes:
-            tipo = 'tradicional_infracoes'
-            modelo = getattr(self, 'modelo_tradicional_infracoes', None)
-            X_input = X_teste[:, :3]
-        elif usar_semelhanca:
-            tipo = 'tradicional_semelhanca'
-            modelo = getattr(self, 'modelo_tradicional_semelhanca', None)
-            X_input = X_teste[:, :3]
+            X_input = X_teste  # 7 features from _gerar_features_janela_semelhanca
         else:
+            # For all other combinations, use the basic model with basic features
             tipo = 'tradicional'
             modelo = getattr(self, 'modelo_tradicional', None)
-            X_input = X_teste[:, :3]
+            if usar_semelhanca and len(X_teste.shape) > 1 and X_teste.shape[1] >= 7:
+                # If we have 7 features but need 3 for basic model
+                X_input = X_teste[:, :3]  # Use only basic features: dist_km, delta_t, velocidade
+            elif usar_infracoes and len(X_teste.shape) > 1 and X_teste.shape[1] >= 4:
+                # If we have 4+ features but need 3 for basic model
+                X_input = X_teste[:, :3]  # Use only basic features: dist_km, delta_t, velocidade
+            else:
+                X_input = X_teste  # Use as-is if it's already the right size
         if modelo is not None:
             try:
                 y_pred = modelo.predict(X_input)
@@ -266,8 +267,15 @@ class ComparadorModelos:
                     continue
                 velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
                 num_infracoes = evento1.get('num_infracoes', 0)
-                semelhanca = evento1.get('semelhanca', 1.0)
-                feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
+                
+                # Decompor semelhança em 3 features booleanas
+                marca_modelo_igual = 1.0 if (evento1.get('marca') == evento2.get('marca') and 
+                                             evento1.get('modelo') == evento2.get('modelo')) else 0.0
+                tipo_igual = 1.0 if evento1.get('tipo') == evento2.get('tipo') else 0.0
+                cor_igual = 1.0 if evento1.get('cor') == evento2.get('cor') else 0.0
+                
+                feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, 
+                                marca_modelo_igual, tipo_igual, cor_igual]
                 features.append(feature_vector)
                 is_suspeito = velocidade_kmh > 150 or evento1.get('is_clonado', False)
                 labels.append(1 if is_suspeito else 0)
@@ -277,7 +285,9 @@ class ComparadorModelos:
                     'delta_t_segundos': delta_t_segundos,
                     'velocidade_kmh': velocidade_kmh,
                     'num_infracoes': num_infracoes,
-                    'semelhanca': semelhanca,
+                    'marca_modelo_igual': marca_modelo_igual,
+                    'tipo_igual': tipo_igual,
+                    'cor_igual': cor_igual,
                     'is_clonado': evento1.get('is_clonado', False)
                 }
                 pares_info.append(par_info)

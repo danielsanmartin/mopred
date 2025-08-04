@@ -218,7 +218,8 @@ class GeradorVeiculos:
     
     def gerar_veiculo(self, indice: int,
                       intervalo_infracoes_clonado: tuple = None,
-                      intervalo_infracoes_normal: tuple = None) -> Dict:
+                      intervalo_infracoes_normal: tuple = None,
+                      is_clone: bool = False) -> Dict:
         """
         Gera um veículo completo com todas as características, incluindo número de infrações.
         Permite configurar os intervalos de infrações para clonados e não clonados.
@@ -226,6 +227,7 @@ class GeradorVeiculos:
             indice (int): Índice do veículo na sequência
             intervalo_infracoes_clonado: (min, max) para veículos clonados
             intervalo_infracoes_normal: (min, max) para veículos normais
+            is_clone: Se True, marca como clonado
         Returns:
             Dict: Dicionário com todas as características do veículo
         """
@@ -247,13 +249,14 @@ class GeradorVeiculos:
         categoria = self.sortear_categoria()
         combustivel = self.sortear_combustivel(tipo)
         cidade_emplacamento = self.sortear_cidade_emplacamento()
-        clonado = self.determinar_clonado(indice)
 
         # Define número de infrações conforme tipo
-        if clonado:
+        if is_clone:
             num_infracoes = random.randint(*intervalo_infracoes_clonado)
+            clonado = 1
         else:
             num_infracoes = random.randint(*intervalo_infracoes_normal)
+            clonado = 0
 
         return {
             'placa': placa,
@@ -269,11 +272,90 @@ class GeradorVeiculos:
             'num_infracoes': num_infracoes
         }
     
+    def gerar_veiculo_clone(self, placa_base: str, clone_idx: int,
+                           intervalo_infracoes_clonado: tuple = None,
+                           intervalo_infracoes_normal: tuple = None) -> Dict:
+        """
+        Gera um clone de veículo com a mesma placa mas características físicas diferentes.
+        
+        Args:
+            placa_base (str): Placa que será clonada
+            clone_idx (int): Índice do clone (0, 1, 2...)
+            intervalo_infracoes_clonado: (min, max) para veículos clonados
+            intervalo_infracoes_normal: (min, max) para veículos normais
+            
+        Returns:
+            Dict: Dicionário com características do veículo clone
+        """
+        # Permitir configuração via config.json
+        if intervalo_infracoes_clonado is None:
+            intervalo_infracoes_clonado = tuple(self.caracteristicas.get('intervalo_infracoes_clonado', (5, 20)))
+        if intervalo_infracoes_normal is None:
+            intervalo_infracoes_normal = tuple(self.caracteristicas.get('intervalo_infracoes_normal', (0, 3)))
+        
+        # Para o primeiro clone (idx 0), usar características "originais"
+        # Para clones subsequentes (idx 1+), variar algumas características
+        
+        if clone_idx == 0:
+            # Clone "original" - mais infrações mas características normais
+            marca, modelo, tipo = self.sortear_marca_modelo_tipo()
+            cor = self.sortear_cor()
+            num_infracoes = random.randint(*intervalo_infracoes_clonado)
+        else:
+            # Clone "falsificado" - características diferentes, menos infrações
+            marca, modelo, tipo = self.sortear_marca_modelo_tipo()
+            cor = self.sortear_cor()
+            
+            # Pequena chance de manter algumas características iguais
+            # para simular clones parcialmente similares
+            if random.random() < 0.3:  # 30% chance de manter tipo igual
+                # Manter tipo, mas mudar marca/modelo
+                marca, modelo, _ = self.sortear_marca_modelo_tipo()
+            
+            if random.random() < 0.2:  # 20% chance de manter cor similar
+                # Escolher cor similar (tons próximos)
+                cores_similares = {
+                    'branco': ['prata', 'cinza'],
+                    'prata': ['branco', 'cinza'],
+                    'preto': ['cinza'],
+                    'cinza': ['prata', 'preto'],
+                    'azul': ['verde'],
+                    'verde': ['azul'],
+                    'vermelho': ['laranja'],
+                    'laranja': ['vermelho', 'amarelo'],
+                    'amarelo': ['laranja']
+                }
+                if cor in cores_similares and random.random() < 0.5:
+                    cor = random.choice(cores_similares[cor])
+            
+            # Clones falsos têm menos infrações (são mais "cuidadosos")
+            num_infracoes = random.randint(*intervalo_infracoes_normal)
+        
+        # Outras características sempre diferentes para cada clone
+        ano = self.sortear_ano()
+        categoria = self.sortear_categoria() 
+        combustivel = self.sortear_combustivel(tipo)
+        cidade_emplacamento = self.sortear_cidade_emplacamento()
+        
+        return {
+            'placa': placa_base,  # Mesma placa!
+            'marca': marca,
+            'modelo': modelo,
+            'tipo': tipo,
+            'ano': ano,
+            'cor': cor,
+            'categoria': categoria,
+            'combustivel': combustivel,
+            'cidade_emplacamento': cidade_emplacamento,
+            'clonado': 1,  # Todos os clones são marcados como clonados
+            'num_infracoes': num_infracoes
+        }
+    
     def gerar_conjunto_veiculos(self, total: int = None, percentual_clonados: float = None,
                                 intervalo_infracoes_clonado: tuple = None,
                                 intervalo_infracoes_normal: tuple = None) -> pd.DataFrame:
         """
-        Gera um conjunto completo de veículos simulados.
+        Gera um conjunto completo de veículos simulados, incluindo clones reais.
         
         Args:
             total (int, optional): Número total de veículos. Usa self.total_veiculos se None.
@@ -292,18 +374,46 @@ class GeradorVeiculos:
         
         veiculos = []
         
-        # Gera veículos clonados primeiro para garantir o percentual exato
-        num_clonados = int(self.total_veiculos * self.percentual_clonados)
-        print(f"   📊 Veículos clonados: {num_clonados}")
+        # Calcular quantos clones reais criar
+        num_placas_clonadas = int(self.total_veiculos * self.percentual_clonados)
+        num_clones_por_placa = 2  # Cada placa clonada terá 2 versões diferentes
+        num_veiculos_normais = self.total_veiculos - (num_placas_clonadas * num_clones_por_placa)
         
-        for i in range(self.total_veiculos):
+        print(f"   📊 Placas clonadas: {num_placas_clonadas}")
+        print(f"   📊 Clones por placa: {num_clones_por_placa}")
+        print(f"   📊 Total de veículos clonados: {num_placas_clonadas * num_clones_por_placa}")
+        print(f"   📊 Veículos normais: {num_veiculos_normais}")
+        
+        # Primeiro, gerar veículos normais
+        for i in range(num_veiculos_normais):
             veiculo = self.gerar_veiculo(i,
                                         intervalo_infracoes_clonado=intervalo_infracoes_clonado,
-                                        intervalo_infracoes_normal=intervalo_infracoes_normal)
+                                        intervalo_infracoes_normal=intervalo_infracoes_normal,
+                                        is_clone=False)
             veiculos.append(veiculo)
-            # Progress feedback
+            
             if (i + 1) % 1000 == 0:
-                print(f"   📈 Progresso: {i+1:,}/{self.total_veiculos:,} ({(i+1)/self.total_veiculos*100:.1f}%)")
+                print(f"   📈 Veículos normais: {i+1:,}/{num_veiculos_normais:,}")
+        
+        # Depois, gerar placas clonadas (cada uma com múltiplas versões)
+        print(f"   🔄 Gerando {num_placas_clonadas} placas clonadas...")
+        
+        for i in range(num_placas_clonadas):
+            # Gerar uma placa base
+            placa_base = self.gerar_placa_mercosul()
+            
+            # Criar múltiplas versões dessa placa com características diferentes
+            for clone_idx in range(num_clones_por_placa):
+                veiculo_clone = self.gerar_veiculo_clone(
+                    placa_base, 
+                    clone_idx,
+                    intervalo_infracoes_clonado=intervalo_infracoes_clonado,
+                    intervalo_infracoes_normal=intervalo_infracoes_normal
+                )
+                veiculos.append(veiculo_clone)
+            
+            if (i + 1) % 100 == 0:
+                print(f"   📈 Placas clonadas: {i+1:,}/{num_placas_clonadas:,}")
         
         # Embaralha a lista para misturar clonados e normais
         random.shuffle(veiculos)

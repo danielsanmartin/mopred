@@ -161,8 +161,15 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
                 continue
             velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
             num_infracoes = evento1.get('num_infracoes', 0)
-            semelhanca = evento1.get('semelhanca', 1.0)
-            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
+            
+            # Decompor semelhança em 3 features booleanas
+            marca_modelo_igual = 1.0 if (evento1.get('marca') == evento2.get('marca') and 
+                                         evento1.get('modelo') == evento2.get('modelo')) else 0.0
+            tipo_igual = 1.0 if evento1.get('tipo') == evento2.get('tipo') else 0.0
+            cor_igual = 1.0 if evento1.get('cor') == evento2.get('cor') else 0.0
+            
+            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, 
+                            marca_modelo_igual, tipo_igual, cor_igual]
             features.append(feature_vector)
     
     X_teste = np.array(features)
@@ -175,7 +182,7 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
     shap_values = explainer.shap_values(X_teste)
     
     # Importância global das features
-    feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
+    feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "marca_modelo_igual", "tipo_igual", "cor_igual"]
     print("Importância global das features:")
     n_features_modelo = len(modelo_rf.feature_importances_)
     for i in range(min(len(feature_names), n_features_modelo)):
@@ -190,7 +197,9 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
         "delta_t_segundos": "Tempo entre leituras (segundos)",
         "velocidade_kmh": "Velocidade estimada (km/h)",
         "num_infracoes": "Número de infrações",
-        "semelhanca": "Semelhança visual (0-1)"
+        "marca_modelo_igual": "Marca/modelo iguais",
+        "tipo_igual": "Tipo igual",
+        "cor_igual": "Cor igual"
     }
     
     clonados_exibidos = 0
@@ -240,8 +249,8 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
                 interpret = "Alto impacto"
                 if nome == "num_infracoes":
                     resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
-                elif nome == "semelhanca":
-                    resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
+                elif nome in ["marca_modelo_igual", "tipo_igual", "cor_igual"]:
+                    resumo.append(f"A similaridade de {nome_pt.lower()} teve forte influência na decisão de clonagem.")
                 else:
                     resumo.append(f"{nome_pt} teve forte influência na decisão.")
             elif abs(impacto_val) > 0.01:
@@ -249,8 +258,8 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
                 interpret = "Impacto moderado"
                 if nome == "num_infracoes":
                     resumo.append("O número de infrações teve impacto moderado na decisão.")
-                elif nome == "semelhanca":
-                    resumo.append("A semelhança visual teve impacto moderado na decisão.")
+                elif nome in ["marca_modelo_igual", "tipo_igual", "cor_igual"]:
+                    resumo.append(f"A similaridade de {nome_pt.lower()} teve impacto moderado na decisão.")
             else:
                 emoji = "🟢"
                 interpret = "Baixo impacto"
