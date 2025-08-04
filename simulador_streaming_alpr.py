@@ -41,6 +41,10 @@ class EventoALPR:
     is_clonado: bool = False
     num_infracoes: int = 0
     semelhanca: float = 1.0
+    marca: str = ""
+    modelo: str = ""
+    tipo: str = ""
+    cor: str = ""
 
     def to_dict(self) -> Dict:
         """Converte para dicionário."""
@@ -54,7 +58,11 @@ class EventoALPR:
             'timestamp_legivel': pd.to_datetime(self.timestamp, unit='ms').strftime('%Y-%m-%d %H:%M:%S'),
             'is_clonado': self.is_clonado,
             'num_infracoes': self.num_infracoes,
-            'semelhanca': self.semelhanca
+            'semelhanca': self.semelhanca,
+            'marca': self.marca,
+            'modelo': self.modelo,
+            'tipo': self.tipo,
+            'cor': self.cor
         }
 
 class SimuladorStreamingALPR:
@@ -227,7 +235,11 @@ class SimuladorStreamingALPR:
                     lon=sensor['lon'],
                     is_clonado=is_clonado,
                     num_infracoes=num_infracoes,
-                    semelhanca=semelhanca
+                    semelhanca=semelhanca,
+                    marca=veiculo.get('marca', ''),
+                    modelo=veiculo.get('modelo', ''),
+                    tipo=veiculo.get('tipo', ''),
+                    cor=veiculo.get('cor', '')
                 )
                 eventos.append(evento)
 
