@@ -58,9 +58,6 @@ def simular_mudancas_temporais(simulador):
     
     return [fase1_eventos, fase2_eventos, fase3_eventos]
 
-
-# ...existing code...
-
 def preparar_dados_treino_inicial(fase1_eventos, n_jobs):
     print(f"\n🌱 PREPARANDO TREINO INICIAL...")
 
@@ -118,6 +115,159 @@ def preparar_dados_treino_inicial(fase1_eventos, n_jobs):
 
     # Balanceamento usando SMOTE (binário)
     return balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal)
+
+def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exibidos=5):
+    """
+    Gera e imprime relatório de explicabilidade SHAP para casos clonados.
+    
+    Args:
+        modelo_rf: Modelo Random Forest treinado
+        eventos: Lista de eventos para análise
+        titulo_relatorio: Título do relatório a ser exibido
+        max_casos_exibidos: Número máximo de casos clonados a serem exibidos (padrão: 5)
+    """
+    try:
+        import shap
+    except ImportError:
+        print("Instalando pacote SHAP...")
+        import subprocess; subprocess.check_call(["pip", "install", "shap"])
+        import shap
+    
+    print(f"\n{titulo_relatorio}")
+    
+    if not eventos:
+        print("Sem eventos para explicação XAI.")
+        return
+    
+    # Preparar dados de teste
+    eventos_dict = [evento.to_dict() for evento in eventos]
+    df_teste = pd.DataFrame(eventos_dict)
+    features = []
+    placas_unicas = df_teste['placa'].unique()
+    
+    for placa in placas_unicas:
+        eventos_placa = df_teste[df_teste['placa'] == placa].sort_values('timestamp')
+        if len(eventos_placa) < 2:
+            continue
+        for i in range(len(eventos_placa) - 1):
+            evento1 = eventos_placa.iloc[i]
+            evento2 = eventos_placa.iloc[i + 1]
+            if evento1['cam'] == evento2['cam']:
+                continue
+            dist_km = haversine((evento1['lat'], evento1['lon']), (evento2['lat'], evento2['lon']))
+            delta_t_ms = abs(evento2['timestamp'] - evento1['timestamp'])
+            delta_t_segundos = delta_t_ms / 1000
+            if delta_t_segundos < 30:
+                continue
+            velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
+            num_infracoes = evento1.get('num_infracoes', 0)
+            semelhanca = evento1.get('semelhanca', 1.0)
+            feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
+            features.append(feature_vector)
+    
+    X_teste = np.array(features)
+    if len(X_teste) == 0:
+        print("Sem dados suficientes para explicação XAI.")
+        return
+    
+    # Gerar explicações SHAP
+    explainer = shap.TreeExplainer(modelo_rf)
+    shap_values = explainer.shap_values(X_teste)
+    
+    # Importância global das features
+    feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
+    print("Importância global das features:")
+    n_features_modelo = len(modelo_rf.feature_importances_)
+    for i in range(min(len(feature_names), n_features_modelo)):
+        nome = feature_names[i]
+        print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
+    
+    # Relatório SHAP para casos clonados
+    print("\nExemplo de explicação SHAP para os primeiros casos clonados (formato amigável):")
+    preds = modelo_rf.predict(X_teste)
+    traducao = {
+        "dist_km": "Distância entre câmeras (km)",
+        "delta_t_segundos": "Tempo entre leituras (segundos)",
+        "velocidade_kmh": "Velocidade estimada (km/h)",
+        "num_infracoes": "Número de infrações",
+        "semelhanca": "Semelhança visual (0-1)"
+    }
+    
+    clonados_exibidos = 0
+    col_widths = [38, 12, 12, 22]
+    
+    def fmt_cell(val, width, align='center'):
+        val_str = str(val)
+        if align == 'center':
+            return val_str.center(width)
+        elif align == 'right':
+            return val_str.rjust(width)
+        else:
+            return val_str.ljust(width)
+    
+    header = ["Característica", "Valor", "Impacto SHAP", "Interpretação"]
+    print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+    print("|" + "|".join(["-"*w for w in col_widths]) + "|")
+    
+    total_clonados = np.sum(preds == 1)
+    for idx in range(len(X_teste)):
+        if preds[idx] != 1:
+            continue
+        clonados_exibidos += 1
+        if clonados_exibidos > max_casos_exibidos:
+            break
+        
+        print(f"\nCaso {idx+1} - Predição: CLONADO")
+        print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
+        print("|" + "|".join(["-"*w for w in col_widths]) + "|")
+        
+        shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
+        feat_vals = X_teste[idx]
+        resumo = []
+        
+        for i, nome in enumerate(feature_names):
+            nome_pt = traducao.get(nome, nome)
+            valor = f"{feat_vals[i]:.3f}"
+            impacto_raw = shap_vals[i]
+            if isinstance(impacto_raw, (np.ndarray, list)):
+                impacto_val = impacto_raw[1] if len(impacto_raw) > 1 else impacto_raw[0]
+            else:
+                impacto_val = impacto_raw
+            impacto_fmt = f"{impacto_val:.3f}"
+            
+            if abs(impacto_val) > 0.05:
+                emoji = "🔴"
+                interpret = "Alto impacto"
+                if nome == "num_infracoes":
+                    resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
+                elif nome == "semelhanca":
+                    resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
+                else:
+                    resumo.append(f"{nome_pt} teve forte influência na decisão.")
+            elif abs(impacto_val) > 0.01:
+                emoji = "🟡"
+                interpret = "Impacto moderado"
+                if nome == "num_infracoes":
+                    resumo.append("O número de infrações teve impacto moderado na decisão.")
+                elif nome == "semelhanca":
+                    resumo.append("A semelhança visual teve impacto moderado na decisão.")
+            else:
+                emoji = "🟢"
+                interpret = "Baixo impacto"
+            
+            print("|" +
+                  fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
+                  fmt_cell(valor, col_widths[1], 'right') + "|" +
+                  fmt_cell(impacto_fmt, col_widths[2], 'right') + "|" +
+                  fmt_cell(f"{emoji} {interpret}", col_widths[3], 'left') + "|")
+        
+        if resumo:
+            print("Resumo: " + " ".join(resumo))
+        else:
+            print("Resumo: Nenhuma característica teve impacto relevante para indicar clonagem.")
+    
+    if clonados_exibidos == 0:
+        print(f"Nenhum caso clonado foi exibido. Total de predições clonadas: {total_clonados}")
 
 def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal):
     """
@@ -265,121 +415,10 @@ def main():
             import subprocess; subprocess.check_call(["pip", "install", "shap"])
             import shap
 
-        print("\n🔎 EXPLICABILIDADE (XAI) PARA RANDOM FOREST TRADICIONAL MULTIMODAL:")
         modelo_rf = getattr(comparador, "modelo_tradicional_multimodal", None)
         if modelo_rf is not None:
-            n_features = getattr(modelo_rf, "n_features_in_", None)
-            if n_features is None:
-                n_features = modelo_rf.n_features_ if hasattr(modelo_rf, "n_features_") else 5
-            feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
             if len(fases) > 0 and len(fases[-1]) > 0:
-                eventos_dict = [evento.to_dict() for evento in fases[-1]]
-                df_teste = pd.DataFrame(eventos_dict)
-                features = []
-                placas_unicas = df_teste['placa'].unique()
-                for placa in placas_unicas:
-                    eventos_placa = df_teste[df_teste['placa'] == placa].sort_values('timestamp')
-                    if len(eventos_placa) < 2:
-                        continue
-                    for i in range(len(eventos_placa) - 1):
-                        evento1 = eventos_placa.iloc[i]
-                        evento2 = eventos_placa.iloc[i + 1]
-                        if evento1['cam'] == evento2['cam']:
-                            continue
-                        dist_km = haversine((evento1['lat'], evento1['lon']), (evento2['lat'], evento2['lon']))
-                        delta_t_ms = abs(evento2['timestamp'] - evento1['timestamp'])
-                        delta_t_segundos = delta_t_ms / 1000
-                        if delta_t_segundos < 30:
-                            continue
-                        velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-                        num_infracoes = evento1.get('num_infracoes', 0)
-                        semelhanca = evento1.get('semelhanca', 1.0)
-                        feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
-                        features.append(feature_vector)
-                X_teste = np.array(features)
-                if len(X_teste) > 0:
-                    explainer = shap.TreeExplainer(modelo_rf)
-                    shap_values = explainer.shap_values(X_teste)
-                    print("\nImportância global das features:")
-                    n_features_modelo = len(modelo_rf.feature_importances_)
-                    for i in range(min(len(feature_names), n_features_modelo)):
-                        nome = feature_names[i]
-                        print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
-                    print("\nExemplo de explicação SHAP para os primeiros casos (relatório amigável):")
-                    preds = modelo_rf.predict(X_teste)
-                    traducao = {
-                        "dist_km": "Distância entre câmeras (km)",
-                        "delta_t_segundos": "Tempo entre leituras (segundos)",
-                        "velocidade_kmh": "Velocidade estimada (km/h)",
-                        "num_infracoes": "Número de infrações",
-                        "semelhanca": "Semelhança visual (0-1)"
-                    }
-                    clonados_exibidos = 0
-                    # Definir larguras fixas para cada coluna (primeira maior, demais mais estreitas)
-                    col_widths = [38, 12, 12, 22]
-                    def fmt_cell(val, width, align='center'):
-                        val_str = str(val)
-                        if align == 'center':
-                            return val_str.center(width)
-                        elif align == 'right':
-                            return val_str.rjust(width)
-                        else:
-                            return val_str.ljust(width)
-                    header = ["Característica", "Valor", "Impacto SHAP", "Interpretação"]
-                    print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
-                    print("|" + "|".join(["-"*w for w in col_widths]) + "|")
-                    for idx in range(len(X_teste)):
-                        if preds[idx] != 1:
-                            continue
-                        clonados_exibidos += 1
-                        if clonados_exibidos > 5:
-                            break
-                        print(f"\nCaso {idx+1} - Predição: CLONADO")
-                        # Imprimir cabeçalho da tabela para cada caso
-                        print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
-                        print("|" + "|".join(["-"*w for w in col_widths]) + "|")
-                        shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
-                        feat_vals = X_teste[idx]
-                        resumo = []
-                        for i, nome in enumerate(feature_names):
-                            nome_pt = traducao.get(nome, nome)
-                            valor = f"{feat_vals[i]:.3f}"
-                            impacto_raw = shap_vals[i]
-                            if isinstance(impacto_raw, (np.ndarray, list)):
-                                impacto_val = impacto_raw[1] if len(impacto_raw) > 1 else impacto_raw[0]
-                            else:
-                                impacto_val = impacto_raw
-                            impacto_fmt = f"{impacto_val:.3f}"
-                            if abs(impacto_val) > 0.05:
-                                emoji = "🔴"
-                                interpret = "Alto impacto"
-                                if nome == "num_infracoes":
-                                    resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
-                                elif nome == "semelhanca":
-                                    resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
-                                else:
-                                    resumo.append(f"{nome_pt} teve forte influência na decisão.")
-                            elif abs(impacto_val) > 0.01:
-                                emoji = "🟡"
-                                interpret = "Impacto moderado"
-                                if nome == "num_infracoes":
-                                    resumo.append("O número de infrações teve impacto moderado na decisão.")
-                                elif nome == "semelhanca":
-                                    resumo.append("A semelhança visual teve impacto moderado na decisão.")
-                            else:
-                                emoji = "🟢"
-                                interpret = "Baixo impacto"
-                            print("|" +
-                                  fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
-                                  fmt_cell(valor, col_widths[1], 'right') + "|" +
-                                  fmt_cell(impacto_fmt, col_widths[2], 'right') + "|" +
-                                  fmt_cell(f"{emoji} {interpret}", col_widths[3], 'left') + "|")
-                        if resumo:
-                            print("Resumo: " + " ".join(resumo))
-                        else:
-                            print("Resumo: Nenhuma característica teve impacto relevante para indicar clonagem.")
-                else:
-                    print("Sem dados suficientes para explicação XAI na última fase.")
+                gerar_relatorio_xai_shap(modelo_rf, fases[-1], "🔎 EXPLICABILIDADE (XAI) PARA RANDOM FOREST TRADICIONAL MULTIMODAL:")
             else:
                 print("Sem dados de teste para explicação XAI.")
         else:
@@ -440,14 +479,6 @@ def testar_streaming_janelas(simulador, comparador):
         # Explicabilidade SHAP para casos clonados do streaming
         modelo_rf = getattr(comparador, "modelo_tradicional_multimodal", None)
         if modelo_rf is not None:
-            try:
-                import shap
-            except ImportError:
-                print("Instalando pacote SHAP...")
-                import subprocess; subprocess.check_call(["pip", "install", "shap"])
-                import shap
-
-            print("\n🔎 EXPLICABILIDADE (XAI) PARA CASOS CLONADOS DO STREAMING (MULTIMODAL):")
             eventos_streaming = []
             janelas_stream = simulador.streaming_janelas_temporais(tamanho_janela_horas=2.0)
             for janela_eventos in janelas_stream:
@@ -455,112 +486,7 @@ def testar_streaming_janelas(simulador, comparador):
             if len(eventos_streaming) == 0:
                 print("Sem eventos de streaming para explicação XAI.")
                 return
-            eventos_dict = [evento.to_dict() for evento in eventos_streaming]
-            df_teste = pd.DataFrame(eventos_dict)
-            feature_names = ["dist_km", "delta_t_segundos", "velocidade_kmh", "num_infracoes", "semelhanca"]
-            features = []
-            placas_unicas = df_teste['placa'].unique()
-            for placa in placas_unicas:
-                eventos_placa = df_teste[df_teste['placa'] == placa].sort_values('timestamp')
-                if len(eventos_placa) < 2:
-                    continue
-                for i in range(len(eventos_placa) - 1):
-                    evento1 = eventos_placa.iloc[i]
-                    evento2 = eventos_placa.iloc[i + 1]
-                    if evento1['cam'] == evento2['cam']:
-                        continue
-                    dist_km = haversine((evento1['lat'], evento1['lon']), (evento2['lat'], evento2['lon']))
-                    delta_t_ms = abs(evento2['timestamp'] - evento1['timestamp'])
-                    delta_t_segundos = delta_t_ms / 1000
-                    if delta_t_segundos < 30:
-                        continue
-                    velocidade_kmh = (dist_km / (delta_t_segundos / 3600)) if delta_t_segundos > 0 else 9999
-                    num_infracoes = evento1.get('num_infracoes', 0)
-                    semelhanca = evento1.get('semelhanca', 1.0)
-                    feature_vector = [dist_km, delta_t_segundos, velocidade_kmh, num_infracoes, semelhanca]
-                    features.append(feature_vector)
-            X_teste = np.array(features)
-            if len(X_teste) > 0:
-                explainer = shap.TreeExplainer(modelo_rf)
-                shap_values = explainer.shap_values(X_teste)
-                print("\nImportância global das features:")
-                for i, nome in enumerate(feature_names):
-                    print(f"  {nome}: {modelo_rf.feature_importances_[i]:.3f}")
-                print("\nExemplo de explicação SHAP para os primeiros casos clonados do streaming (formato amigável):")
-                preds = modelo_rf.predict(X_teste)
-                traducao = {
-                    "dist_km": "Distância entre câmeras (km)",
-                    "delta_t_segundos": "Tempo entre leituras (segundos)",
-                    "velocidade_kmh": "Velocidade estimada (km/h)",
-                    "num_infracoes": "Número de infrações",
-                    "semelhanca": "Semelhança visual (0-1)"
-                }
-                clonados_exibidos = 0
-                # Usar o mesmo padrão de larguras do relatório XAI principal
-                col_widths = [38, 12, 12, 22]
-                def fmt_cell(val, width, align='center'):
-                    val_str = str(val)
-                    if align == 'center':
-                        return val_str.center(width)
-                    elif align == 'right':
-                        return val_str.rjust(width)
-                    else:
-                        return val_str.ljust(width)
-                header = ["Característica", "Valor", "Impacto SHAP", "Interpretação"]
-                print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
-                print("|" + "|".join(["-"*w for w in col_widths]) + "|")
-                for idx in range(len(X_teste)):
-                    if preds[idx] != 1:
-                        continue
-                    clonados_exibidos += 1
-                    if clonados_exibidos > 5:
-                        break
-                    print(f"\nCaso {idx+1} - Predição: CLONADO")
-                    # Imprimir cabeçalho da tabela para cada caso
-                    print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
-                    print("|" + "|".join(["-"*w for w in col_widths]) + "|")
-                    shap_vals = shap_values[1][idx] if isinstance(shap_values, list) else shap_values[idx]
-                    feat_vals = X_teste[idx]
-                    resumo = []
-                    for i, nome in enumerate(feature_names):
-                        nome_pt = traducao.get(nome, nome)
-                        valor = f"{feat_vals[i]:.3f}"
-                        impacto_raw = shap_vals[i]
-                        if isinstance(impacto_raw, (np.ndarray, list)):
-                            impacto_val = impacto_raw[1] if len(impacto_raw) > 1 else impacto_raw[0]
-                        else:
-                            impacto_val = impacto_raw
-                        impacto_fmt = f"{impacto_val:.3f}"
-                        if abs(impacto_val) > 0.05:
-                            emoji = "🔴"
-                            interpret = "Alto impacto"
-                            if nome == "num_infracoes":
-                                resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
-                            elif nome == "semelhanca":
-                                resumo.append("A semelhança visual teve forte influência na decisão de clonagem.")
-                            else:
-                                resumo.append(f"{nome_pt} teve forte influência na decisão.")
-                        elif abs(impacto_val) > 0.01:
-                            emoji = "🟡"
-                            interpret = "Impacto moderado"
-                            if nome == "num_infracoes":
-                                resumo.append("O número de infrações teve impacto moderado na decisão.")
-                            elif nome == "semelhanca":
-                                resumo.append("A semelhança visual teve impacto moderado na decisão.")
-                        else:
-                            emoji = "🟢"
-                            interpret = "Baixo impacto"
-                        print("|" +
-                              fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
-                              fmt_cell(valor, col_widths[1], 'right') + "|" +
-                              fmt_cell(impacto_fmt, col_widths[2], 'right') + "|" +
-                              fmt_cell(f"{emoji} {interpret}", col_widths[3], 'left') + "|")
-                    if resumo:
-                        print("Resumo: " + " ".join(resumo))
-                    else:
-                        print("Resumo: Nenhuma característica teve impacto relevante para indicar clonagem.")
-            else:
-                print("Sem dados suficientes para explicação XAI no streaming.")
+            gerar_relatorio_xai_shap(modelo_rf, eventos_streaming, "🔎 EXPLICABILIDADE (XAI) PARA CASOS CLONADOS DO STREAMING (MULTIMODAL):")
         
     except Exception as e:
         print(f"❌ Erro no teste de streaming: {e}")
