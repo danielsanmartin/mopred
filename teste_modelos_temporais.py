@@ -18,7 +18,7 @@ try:
 except ImportError:
     SMOTE = None
 
-def simular_mudancas_temporais(simulador):
+def simular_mudancas_temporais(simulador, config):
     """Simula mudanças nos padrões de clonagem ao longo do tempo."""
     print("🔄 Simulando mudanças temporais nos dados...")
     
@@ -44,12 +44,31 @@ def simular_mudancas_temporais(simulador):
     
     # Fase 3: Novos padrões de clonagem (últimos 33%)
     fase3_eventos = todos_eventos[2*fase1_size:]
-    # Simular novos padrões geográficos
-    contador = 0
+    
+    # Simular novos padrões geográficos usando coordenadas do config
+    print("  📍 Criando zonas quentes baseadas na configuração...")
+    
+    # Selecionar algumas cidades como zonas quentes (cidades maiores ou estratégicas)
+    cidades_config = config.get("lat_lon_por_cidade", {})
+    zonas_quentes = config.get("zonas_quentes", [])  # Cidades estratégicas
+    raio_zona = config.get("raio_zonas_quentes", 0.2)  # 0.2 equivale a aproximadamente 20km
+
+    total_clonados_zona = 0
     for evento in fase3_eventos:
-        contador += 1
-        if contador % 3 == 0:  # A cada 3 eventos
-            evento.is_clonado = True
+        lat, lon = evento.lat, evento.lon
+        
+        # Verificar se está próximo a alguma zona quente
+        for cidade in zonas_quentes:
+            if cidade in cidades_config:
+                cidade_lat, cidade_lon = cidades_config[cidade]
+                # Verificar se está dentro do raio da cidade
+                if (abs(lat - cidade_lat) < raio_zona and 
+                    abs(lon - cidade_lon) < raio_zona):
+                    evento.is_clonado = True
+                    total_clonados_zona += 1
+                    break
+    
+    print(f"  ✅ {total_clonados_zona} eventos marcados como clonados nas zonas quentes")
     
     print(f"✅ Fases criadas:")
     print(f"  Fase 1: {len(fase1_eventos):,} eventos (baseline)")
@@ -58,17 +77,17 @@ def simular_mudancas_temporais(simulador):
     
     return [fase1_eventos, fase2_eventos, fase3_eventos]
 
-def preparar_dados_treino_inicial(fase1_eventos, n_jobs):
+def preparar_dados_treino_inicial(fase1_eventos, n_jobs, config=None):
     print(f"\n🌱 PREPARANDO TREINO INICIAL...")
 
     if not fase1_eventos:
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
 
     eventos_dict = [evento.to_dict() for evento in fase1_eventos]
     df_treino = pd.DataFrame(eventos_dict)
 
     if len(df_treino) == 0:
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
 
     placas_unicas = df_treino['placa'].unique()
 
@@ -113,8 +132,22 @@ def preparar_dados_treino_inicial(fase1_eventos, n_jobs):
     X_treino_multimodal = np.array(features_multimodal, dtype=np.float32)  # Features com 5 dimensões
     y_treino = np.array(labels, dtype=np.int32).ravel()
 
-    # Balanceamento usando SMOTE (binário)
-    return balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal)
+    # Verificar se deve usar SMOTE
+    usar_smote = config.get("usar_smote", True) if config else True
+    
+    if usar_smote:
+        return balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal, config)
+    else:
+        print("⚠️ SMOTE desabilitado pela configuração.")
+        print(f"✅ Dados de treino preparados (sem balanceamento):")
+        print(f"   📊 {len(X_treino):,} pares de eventos")
+        for classe in [0, 1]:
+            print(f"   Classe {classe}: {np.sum(y_treino == classe)} exemplos")
+        if len(features_multimodal) > 0:
+            print(f"   🧬 Média de semelhança: {np.mean([f[-1] for f in features_multimodal]):.3f}")
+        else:
+            print(f"   🧬 Média de semelhança: N/A")
+        return X_treino, X_treino_multimodal, y_treino
 
 def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exibidos=5):
     """
@@ -192,6 +225,7 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
     # Relatório SHAP para casos clonados
     print("\nExemplo de explicação SHAP para os primeiros casos clonados (formato amigável):")
     preds = modelo_rf.predict(X_teste)
+    probs = modelo_rf.predict_proba(X_teste)
     traducao = {
         "dist_km": "Distância entre câmeras (km)",
         "delta_t_segundos": "Tempo entre leituras (segundos)",
@@ -226,7 +260,9 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
         if clonados_exibidos > max_casos_exibidos:
             break
         
-        print(f"\nCaso {idx+1} - Predição: CLONADO")
+        # Calcular escore de suspeição (probabilidade da classe "clonado")
+        escore_suspeicao = probs[idx][1] * 100  # Probabilidade da classe 1 (clonado) em porcentagem
+        print(f"\nCaso {idx+1} - Predição: CLONADO - Escore de suspeição: {escore_suspeicao:.2f}%")
         print("|" + "|".join([fmt_cell(h, w) for h, w in zip(header, col_widths)]) + "|")
         print("|" + "|".join(["-"*w for w in col_widths]) + "|")
         
@@ -278,7 +314,7 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
     if clonados_exibidos == 0:
         print(f"Nenhum caso clonado foi exibido. Total de predições clonadas: {total_clonados}")
 
-def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal):
+def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, features_multimodal, config=None):
     """
     Aplica balanceamento SMOTE binário nos dados de treino.
     Retorna os dados balanceados ou originais se não for possível balancear.
@@ -299,7 +335,10 @@ def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, feature
     min_class_count = np.min(counts) if len(counts) > 0 else 0
     # Só aplica SMOTE se todas as classes tiverem pelo menos 2 exemplos
     if np.all(counts >= 2):
-        k_neighbors = max(1, min(min_class_count - 1, 5))
+        # Usar k_neighbors do config ou valor padrão
+        k_neighbors_config = config.get("smote_k_neighbors", 5) if config else 5
+        k_neighbors = max(1, min(min_class_count - 1, k_neighbors_config))
+        
         smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
         X_treino_bal, y_treino_bal = smote.fit_resample(X_treino, y_treino)
         X_treino_multimodal_bal, y_treino_multimodal_bal = smote.fit_resample(X_treino_multimodal, y_treino)
@@ -330,11 +369,13 @@ def main():
     """Função principal do teste."""
     print("🚀 INICIANDO TESTE DE MODELOS TEMPORAIS")
     print("=" * 60)
+    
+    config = None
 
     # Ler n_jobs do config.json
     with open("config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
-    n_jobs = config.get("n_jobs", 8)
+    
 
     try:
         # 1. Inicializar simulador
@@ -346,14 +387,15 @@ def main():
             return
 
         # 2. Simular mudanças temporais
-        fases = simular_mudancas_temporais(simulador)
+        fases = simular_mudancas_temporais(simulador, config)
 
         if not fases:
             print("❌ Erro ao criar fases temporais")
             return
 
         # 3. Preparar dados de treino inicial (fase 1)
-        X_treino, X_treino_multimodal, y_treino = preparar_dados_treino_inicial(fases[0], n_jobs)
+        n_jobs = config.get("n_jobs", 8)
+        X_treino, X_treino_multimodal, y_treino = preparar_dados_treino_inicial(fases[0], n_jobs, config)
 
         if len(X_treino) == 0:
             print("❌ Nenhum dado de treino gerado")
@@ -368,9 +410,9 @@ def main():
             print(f"❌ Inconsistência: X_treino tem {X_treino.shape[0]} linhas, y_treino tem {y_treino.shape[0]} labels. Treino abortado.")
             return
         print("\n🌟 Treinando modelo tradicional (apenas features básicas)...")
-        comparador.treinar_modelo_tradicional(X_treino, y_treino, usar_infracoes=False, usar_semelhanca=False)
+        comparador.treinar_modelo_tradicional(X_treino, y_treino, multimodal=False)
         print("\n🌟 Treinando modelo tradicional (multimodal: infrações + semelhança)...")
-        comparador.treinar_modelo_tradicional(X_treino_multimodal, y_treino, usar_infracoes=True, usar_semelhanca=True)
+        comparador.treinar_modelo_tradicional(X_treino_multimodal, y_treino, multimodal=True)
 
         # 6. Testar em janelas temporais
         print(f"\n🕒 TESTANDO EM JANELAS TEMPORAIS...")
@@ -404,12 +446,12 @@ def main():
                 # Processar janela para modelo adaptativo (treino incremental)
                 # Somente a partir da segunda janela (primeira é baseline)
                 if janela_contador > 1:
-                    comparador.processar_janela_adaptativo(janela_eventos, usar_infracoes=False, usar_semelhanca=False)
-                    comparador.processar_janela_adaptativo(janela_eventos, usar_infracoes=True, usar_semelhanca=True)
+                    comparador.processar_janela_adaptativo(janela_eventos, multimodal=False)
+                    comparador.processar_janela_adaptativo(janela_eventos, multimodal=True)
 
                 # Avaliar todos os modelos e salvar métricas para todos cenários
-                comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=False, usar_semelhanca=False)
-                comparador.avaliar_janela(janela_eventos, janela_contador, usar_infracoes=True, usar_semelhanca=True)
+                comparador.avaliar_janela(janela_eventos, janela_contador, multimodal=False)
+                comparador.avaliar_janela(janela_eventos, janela_contador, multimodal=True)
 
                 janela_contador += 1
 
