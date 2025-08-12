@@ -524,7 +524,7 @@ def main():
         CONFIG_PATH = "config.json"
         ARQUIVO_SAIDA = "veiculos_gerados.csv"
         # Valores padrão
-        TOTAL_VEICULOS = 1000
+        TOTAL_VEICULOS = 50000
         PERCENTUAL_CLONADOS = 0.003
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
