@@ -1,7 +1,7 @@
 {
-  "csv_veiculos_path": "veiculos_gerados.csv",
-  "percentual_clones_identicos": 0.8,
-
+  "csv_veiculos_path": "veiculos_gerados_com_clones.csv",
+  "percentual_clones_identicos": 0.2,
+  "total_veiculos": 1000,
   "percentual_veiculos_clonados": 0.02,
   "n_passagens_min": 2,
   "n_passagens_max": 2,
@@ -53,6 +53,8 @@
     "Laguna": [-28.4845, -48.7814],
     "Canoinhas": [-26.1778, -50.3906]
   },
+  "zonas_quentes": ["Florianópolis", "Chapecó", "Criciúma"],
+  "raio_zonas_quentes": 0.2,
   "percentual_sensores_concentrados": 0.7,
 
   "chance_de_rotas_urbanas": 0.8,
@@ -61,5 +63,7 @@
   "max_tempo_entre_passagens_seg": 7200,
   "intervalo_infracoes_clonado": [5, 20],
   "intervalo_infracoes_normal": [0, 3],
-  "n_jobs": 4
+  "n_jobs": 4,
+  "usar_smote": false,
+  "smote_k_neighbors": 5
 }
