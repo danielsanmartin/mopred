@@ -12,7 +12,7 @@ def analisar_resultados():
     # ... Bloco de conclusão automática será movido para depois do cálculo das médias ...
     # ...existing code...
     # Carregar resultados
-    df = pd.read_csv("comparacao_modelos_resultados.csv")
+    df = pd.read_csv("csvs/comparacao_modelos_resultados.csv")
     # Separar por tipo de modelo
     df_trad = df[df['tipo'] == 'tradicional'].reset_index(drop=True)
     df_trad_multi = df[df['tipo'] == 'tradicional_multimodal'].reset_index(drop=True)
@@ -71,7 +71,7 @@ def analisar_resultados():
     print("=" * 60)
     
     # Carregar resultados
-    df = pd.read_csv("comparacao_modelos_resultados.csv")
+    df = pd.read_csv("csvs/comparacao_modelos_resultados.csv")
     
     # Separar por tipo de modelo
     df_trad = df[df['tipo'] == 'tradicional'].reset_index(drop=True)
