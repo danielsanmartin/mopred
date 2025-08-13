@@ -10,6 +10,8 @@ from comparador_modelos import ComparadorModelos
 import json
 import pandas as pd
 import numpy as np
+import hashlib
+import hmac
 from haversine import haversine
 from joblib import Parallel, delayed
 from utils import processar_placa_basico
@@ -17,6 +19,69 @@ try:
     from imblearn.over_sampling import SMOTE
 except ImportError:
     SMOTE = None
+
+def pseudonimizar_placa(placa, salt="mopred_2024_salt_key"):
+    """
+    Gera um pseudônimo irreversível para a placa usando SHA-256.
+    
+    Args:
+        placa: Placa original (ex: "ABC1234")
+        salt: Chave secreta para tornar o hash mais seguro
+    
+    Returns:
+        String pseudonimizada (ex: "PSEUDO_A1B2C3D4")
+    """
+    # Normalizar placa (remover espaços, converter para maiúscula)
+    placa_normalizada = placa.upper().replace(" ", "").replace("-", "")
+    
+    # Gerar hash seguro com salt
+    hash_obj = hmac.new(
+        salt.encode('utf-8'), 
+        placa_normalizada.encode('utf-8'), 
+        hashlib.sha256
+    )
+    hash_hex = hash_obj.hexdigest()
+    
+    # Usar apenas os primeiros 8 caracteres para pseudônimo mais legível
+    pseudonimo = f"PSEUDO_{hash_hex[:8].upper()}"
+    
+    return pseudonimo
+
+def aplicar_pseudonimizacao_eventos(eventos, config=None):
+    """
+    Aplica pseudonimização em todos os eventos.
+    
+    Args:
+        eventos: Lista de eventos com placas originais
+        config: Configuração com salt personalizado
+    
+    Returns:
+        Lista de eventos com placas pseudonimizadas
+    """
+    print("🔒 Aplicando pseudonimização nas placas...")
+    
+    # Usar salt do config ou padrão
+    salt = config.get("salt_pseudonimizacao", "mopred_doutorado_2024_chave_secreta") if config else "mopred_doutorado_2024_chave_secreta"
+    
+    placas_mapeadas = {}
+    total_pseudonimizadas = 0
+    
+    for evento in eventos:
+        placa_original = evento.placa
+        
+        # Verificar se já foi pseudonimizada
+        if placa_original not in placas_mapeadas:
+            placa_pseudo = pseudonimizar_placa(placa_original, salt)
+            placas_mapeadas[placa_original] = placa_pseudo
+            total_pseudonimizadas += 1
+        
+        # Substituir placa original pela pseudonimizada
+        evento.placa = placas_mapeadas[placa_original]
+    
+    print(f"✅ {total_pseudonimizadas} placas únicas pseudonimizadas")
+    print(f"📊 Total de eventos processados: {len(eventos)}")
+    
+    return eventos
 
 def simular_mudancas_temporais(simulador, config):
     """Simula mudanças nos padrões de clonagem ao longo do tempo."""
@@ -149,6 +214,31 @@ def preparar_dados_treino_inicial(fase1_eventos, n_jobs, config=None):
             print(f"   🧬 Média de semelhança: N/A")
         return X_treino, X_treino_multimodal, y_treino
 
+def interpretar_impacto_shap_dinamico(valor_shap, todos_shap_values):
+    abs_valor = abs(valor_shap)
+    abs_todos = [abs(v) for v in todos_shap_values]
+    
+    # Usar thresholds mais baixos para capturar melhor as nuances
+    p60 = np.percentile(abs_todos, 60)  # Mais baixo que P75
+    p30 = np.percentile(abs_todos, 30)  # Mais baixo que P25
+    
+    # Determinar magnitude do impacto
+    if abs_valor >= p60:
+        nivel = "Alto impacto"
+        emoji = "🔴"  # Vermelho
+    elif abs_valor >= p30:
+        nivel = "Impacto moderado"  
+        emoji = "🟡"  # Amarelo
+    else:
+        nivel = "Baixo impacto"
+        emoji = "🟢"  # Verde
+    
+    # Adicionar direção (+ ou -)
+    if valor_shap >= 0:
+        return f"{emoji} + {nivel}"  # Aumenta probabilidade
+    else:
+        return f"{emoji} - {nivel}"  # Diminui probabilidade
+
 def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exibidos=5):
     """
     Gera e imprime relatório de explicabilidade SHAP para casos clonados.
@@ -270,6 +360,7 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
         feat_vals = X_teste[idx]
         resumo = []
         
+        # Usar interpretação dinâmica baseada na distribuição dos valores SHAP deste caso
         for i, nome in enumerate(feature_names):
             nome_pt = traducao.get(nome, nome)
             valor = f"{feat_vals[i]:.3f}"
@@ -280,25 +371,26 @@ def gerar_relatorio_xai_shap(modelo_rf, eventos, titulo_relatorio, max_casos_exi
                 impacto_val = impacto_raw
             impacto_fmt = f"{impacto_val:.3f}"
             
-            if abs(impacto_val) > 0.05:
-                emoji = "🔴"
-                interpret = "Alto impacto"
+            # Usar interpretação dinâmica
+            interpretacao = interpretar_impacto_shap_dinamico(impacto_val, shap_vals)
+            # Extrai emoji e texto sem cortar a 1ª letra
+            partes = interpretacao.split(' ', 1)
+            emoji = partes[0] if partes else ''
+            interpret = partes[1] if len(partes) > 1 else ''
+            
+            # Gerar resumo baseado na interpretação dinâmica
+            if "Alto impacto" in interpretacao:
                 if nome == "num_infracoes":
                     resumo.append("O número de infrações teve forte influência na decisão de clonagem.")
                 elif nome in ["marca_modelo_igual", "tipo_igual", "cor_igual"]:
                     resumo.append(f"A similaridade de {nome_pt.lower()} teve forte influência na decisão de clonagem.")
                 else:
                     resumo.append(f"{nome_pt} teve forte influência na decisão.")
-            elif abs(impacto_val) > 0.01:
-                emoji = "🟡"
-                interpret = "Impacto moderado"
+            elif "Impacto moderado" in interpretacao:
                 if nome == "num_infracoes":
                     resumo.append("O número de infrações teve impacto moderado na decisão.")
                 elif nome in ["marca_modelo_igual", "tipo_igual", "cor_igual"]:
                     resumo.append(f"A similaridade de {nome_pt.lower()} teve impacto moderado na decisão.")
-            else:
-                emoji = "🟢"
-                interpret = "Baixo impacto"
             
             print("|" +
                   fmt_cell(nome_pt, col_widths[0], 'left') + "|" +
@@ -365,16 +457,19 @@ def balancear_com_smote_binario(X_treino, X_treino_multimodal, y_treino, feature
             print(f"   🧬 Média de semelhança: N/A")
         return X_treino, X_treino_multimodal, y_treino
 
-def main():
+def main(config=None):
     """Função principal do teste."""
     print("🚀 INICIANDO TESTE DE MODELOS TEMPORAIS")
     print("=" * 60)
     
-    config = None
-
-    # Ler n_jobs do config.json
-    with open("config.json", "r", encoding="utf-8") as f:
-        config = json.load(f)
+    # Se config não foi passado, carregar do arquivo
+    if config is None:
+        try:
+            with open("config.json", "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            print("⚠️ Arquivo config.json não encontrado")
+            config = {}
     
 
     try:
@@ -385,6 +480,13 @@ def main():
         if not eventos:
             print("❌ Nenhum evento gerado pelo simulador")
             return
+
+        # 1b. Aplicar pseudonimização se configurado
+        if config and config.get("usar_pseudonimizacao", False):
+            print("\n🔒 APLICANDO PSEUDONIMIZAÇÃO...")
+            eventos = aplicar_pseudonimizacao_eventos(eventos, config)
+        else:
+            print("ℹ️ Pseudonimização desabilitada ou não configurada")
 
         # 2. Simular mudanças temporais
         fases = simular_mudancas_temporais(simulador, config)
@@ -543,4 +645,21 @@ def testar_streaming_janelas(simulador, comparador):
         print(f"❌ Erro no teste de streaming: {e}")
 
 if __name__ == "__main__":
-    main()
+    print("🚀 Iniciando análise de modelos temporais para detecção de clonagem")
+    print("=" * 70)
+    
+    # Carregar configuração
+    config = None
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print("⚠️ Arquivo config.json não encontrado. Usando configuração padrão.")
+        config = {
+            "usar_smote": False,
+            "smote_k_neighbors": 5,
+            "usar_pseudonimizacao": False,
+            "salt_pseudonimizacao": "mopred_doutorado_2024_chave_secreta"
+        }
+    
+    main(config)
