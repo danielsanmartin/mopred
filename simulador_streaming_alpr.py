@@ -64,7 +64,7 @@ class EventoALPR:
         }
 
 class SimuladorStreamingALPR:
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = "configs/config.json"):
         """
         Inicializa o simulador de streaming ALPR.
         
@@ -480,21 +480,38 @@ class SimuladorStreamingALPR:
         self.pausa_streaming = False
         print("▶️ Streaming retomado")
     
-    def salvar_eventos_csv(self, arquivo_saida: str = "passagens_streaming.csv") -> None:
+    def salvar_eventos_csv(self, arquivo_saida: str = "passagens_streaming.csv", pasta_csvs: str = None) -> None:
         """Salva os eventos gerados em arquivo CSV."""
         if not self.eventos_gerados:
             print("❌ Nenhum evento gerado para salvar")
             return
         
-        eventos_dict = [evento.to_dict() for evento in self.eventos_gerados]
-        df_eventos = pd.DataFrame(eventos_dict)
-        df_eventos.to_csv(arquivo_saida, index=False, encoding='utf-8')
-        print(f"📁 Arquivo salvo: {arquivo_saida}")
-        print(f"📊 Estatísticas dos eventos:")
-        print(f"   🚗 Total de eventos: {len(df_eventos):,}")
-        print(f"   🏷️ Placas distintas: {df_eventos['placa'].nunique():,}")
-        print(f"   📡 Câmeras utilizadas: {df_eventos['cam'].nunique()}")
-        print(f"   ⚠️ Eventos de veículos clonados: {df_eventos['is_clonado'].sum():,}")
+        try:
+            eventos_dict = [evento.to_dict() for evento in self.eventos_gerados]
+            df_eventos = pd.DataFrame(eventos_dict)
+            
+            # Garantir que o nome do arquivo seja válido
+            arquivo_seguro = arquivo_saida.replace(':', '_').replace('*', '_').replace('?', '_')
+            
+            # Usar pasta de CSVs se especificada
+            if pasta_csvs:
+                import os
+                if not os.path.exists(pasta_csvs):
+                    os.makedirs(pasta_csvs)
+                    print(f"📁 Pasta CSV criada: {pasta_csvs}")
+                arquivo_seguro = os.path.join(pasta_csvs, arquivo_seguro)
+            
+            df_eventos.to_csv(arquivo_seguro, index=False, encoding='utf-8')
+            print(f"📁 Arquivo salvo: {arquivo_seguro}")
+            print(f"📊 Estatísticas dos eventos:")
+            print(f"   🚗 Total de eventos: {len(df_eventos):,}")
+            print(f"   🏷️ Placas distintas: {df_eventos['placa'].nunique():,}")
+            print(f"   📡 Câmeras utilizadas: {df_eventos['cam'].nunique()}")
+            print(f"   ⚠️ Eventos de veículos clonados: {df_eventos['is_clonado'].sum():,}")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar CSV: {e}")
+            print("ℹ️ Continuando sem salvar arquivo...")
+            return
     
     def executar_simulacao_completa(self):
         """Executa a simulação completa e gera os eventos."""
@@ -511,7 +528,8 @@ class SimuladorStreamingALPR:
         self.gerar_eventos_cronologicos()
         
         # Passo 4: Salvar eventos
-        self.salvar_eventos_csv()
+        pasta_csvs = self.config.get("pasta_csvs", "csvs") if hasattr(self, 'config') and self.config else "csvs"
+        self.salvar_eventos_csv(pasta_csvs=pasta_csvs)
         
         print(f"=" * 60)
         print(f"🎉 Simulação concluída! Eventos prontos para streaming.")
@@ -522,7 +540,7 @@ def main():
     """Função principal - demonstração dos modos de streaming."""
     try:
         # Inicializar simulador
-        simulador = SimuladorStreamingALPR("config.json")
+        simulador = SimuladorStreamingALPR("configs/config.json")
         
         # Executar simulação completa
         eventos = simulador.executar_simulacao_completa()

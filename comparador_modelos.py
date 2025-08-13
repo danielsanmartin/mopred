@@ -58,9 +58,10 @@ class AdaptiveRandomForestWrapper:
         return np.array(predictions)
 
 class ComparadorModelos:
-    def __init__(self, simulador_streaming, n_jobs=8):
+    def __init__(self, simulador_streaming, n_jobs=8, config=None):
         self.simulador = simulador_streaming
         self.n_jobs = n_jobs
+        self.config = config  # Armazenar configuração
         self.modelo_tradicional = None
         self.modelo_tradicional_multimodal = None
         self.modelo_adaptativo = AdaptiveRandomForestWrapper(
@@ -493,5 +494,17 @@ class ComparadorModelos:
         df_adapt_mm = add_multimodal_features(df_adapt_mm, 'adaptativo_multimodal')
 
         df_comparacao = pd.concat([df_trad, df_trad_mm, df_adapt, df_adapt_mm], ignore_index=True)
-        df_comparacao.to_csv('comparacao_modelos_resultados.csv', index=False)
-        print(f"\n💾 Resultados salvos em: comparacao_modelos_resultados.csv (cenários básico e multimodal)")
+        
+        # Usar pasta de CSVs configurável
+        pasta_csvs = self.config.get("pasta_csvs", "csvs") if self.config else "csvs"
+        
+        # Criar pasta se não existir
+        import os
+        if not os.path.exists(pasta_csvs):
+            os.makedirs(pasta_csvs)
+            print(f"📁 Pasta CSV criada: {pasta_csvs}")
+        
+        # Salvar CSV na pasta configurada
+        arquivo_csv = os.path.join(pasta_csvs, 'comparacao_modelos_resultados.csv')
+        df_comparacao.to_csv(arquivo_csv, index=False)
+        print(f"\n💾 Resultados salvos em: {arquivo_csv} (cenários básico e multimodal)")

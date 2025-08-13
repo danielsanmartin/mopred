@@ -19,7 +19,7 @@ import os
 from typing import Dict, List, Set, Tuple
 
 class GeradorVeiculos:
-    def __init__(self, arquivo_caracteristicas: str = "caracteristicas_veiculos.json"):
+    def __init__(self, arquivo_caracteristicas: str = "configs/caracteristicas_veiculos.json"):
         """
         Inicializa o gerador de veículos.
         
@@ -423,15 +423,24 @@ class GeradorVeiculos:
         print(f"✅ Geração concluída!")
         return df
     
-    def salvar_csv(self, df: pd.DataFrame, arquivo_saida: str = "veiculos_gerados.csv") -> None:
+    def salvar_csv(self, df: pd.DataFrame, arquivo_saida: str = "veiculos_gerados.csv", pasta_csvs: str = "csvs") -> None:
         """
         Salva o DataFrame de veículos em um arquivo CSV.
         
         Args:
             df (pd.DataFrame): DataFrame com os veículos
             arquivo_saida (str): Nome do arquivo de saída
+            pasta_csvs (str): Pasta onde salvar os CSVs
         """
-        df.to_csv(arquivo_saida, index=False, encoding='utf-8')
+        # Criar pasta se não existir
+        import os
+        if not os.path.exists(pasta_csvs):
+            os.makedirs(pasta_csvs)
+            print(f"📁 Pasta CSV criada: {pasta_csvs}")
+        
+        # Salvar na pasta especificada
+        caminho_completo = os.path.join(pasta_csvs, arquivo_saida)
+        df.to_csv(caminho_completo, index=False, encoding='utf-8')
         
         print(f"📁 Arquivo salvo: {arquivo_saida}")
         print(f"📊 Estatísticas finais:")
@@ -521,8 +530,9 @@ def main():
     try:
         # Ler configurações do config.json
         import json
-        CONFIG_PATH = "config.json"
-        ARQUIVO_SAIDA = "veiculos_gerados.csv"
+        CONFIG_PATH = "configs/config.json"
+        ARQUIVO_SAIDA = "veiculos_gerados_com_clones.csv"
+        PASTA_CSVS = "csvs"  # Valor padrão
         # Valores padrão
         TOTAL_VEICULOS = 50000
         PERCENTUAL_CLONADOS = 0.003
@@ -531,14 +541,16 @@ def main():
                 config = json.load(f)
             TOTAL_VEICULOS = config.get("total_veiculos", TOTAL_VEICULOS)
             PERCENTUAL_CLONADOS = config.get("percentual_clonados", PERCENTUAL_CLONADOS)
+            PASTA_CSVS = config.get("pasta_csvs", PASTA_CSVS)
         print(f"🏭 Iniciando geração de veículos simulados")
         print(f"📋 Configurações:")
         print(f"   Total de veículos: {TOTAL_VEICULOS:,}")
         print(f"   Percentual clonados: {PERCENTUAL_CLONADOS:.1%}")
+        print(f"   Pasta CSV: {PASTA_CSVS}")
         print(f"   Arquivo de saída: {ARQUIVO_SAIDA}")
         print()
         # Inicializa gerador
-        gerador = GeradorVeiculos("caracteristicas_veiculos.json")
+        gerador = GeradorVeiculos("configs/caracteristicas_veiculos.json")
         # Gera conjunto de veículos
         df_veiculos = gerador.gerar_conjunto_veiculos(
             total=TOTAL_VEICULOS,
@@ -547,9 +559,10 @@ def main():
         # Valida os dados
         dados_validos = gerador.validar_dados(df_veiculos)
         if dados_validos:
-            # Salva arquivo CSV
-            gerador.salvar_csv(df_veiculos, ARQUIVO_SAIDA)
+            # Salva arquivo CSV na pasta configurada
+            gerador.salvar_csv(df_veiculos, ARQUIVO_SAIDA, PASTA_CSVS)
             print(f"\n🎉 Processo concluído com sucesso!")
+            print(f"📁 Arquivo salvo em: {PASTA_CSVS}/{ARQUIVO_SAIDA}")
         else:
             print(f"\n❌ Processo interrompido devido a erros de validação.")
     except Exception as e:

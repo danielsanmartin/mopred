@@ -1,4 +1,41 @@
+# Arquivos de dados gerados automaticamente
 /comparacao_modelos_resultados.csv
 /veiculos_gerados_sem_infracao.csv
+
+# Conteúdo das pastas de dados (manter as pastas, ignorar arquivos)
+csvs/*
+!csvs/.gitkeep
+alertas_gerados/*
+!alertas_gerados/.gitkeep
+
+# Ambiente virtual Python
 /venv
+venv/
+
+# Cache Python
 /__pycache__
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Arquivos temporários
+*.tmp
+*.temp
+*.log
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos de backup
+*.bak
+*.backup
+*~
