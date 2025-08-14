@@ -107,15 +107,17 @@ class SimuladorStreamingALPR:
     
     def _imprimir_config(self) -> None:
         """Imprime as principais configurações carregadas."""
+        total_sensores = sum(self.config['sensores_por_cidade'].values())
         print(f"📋 Configurações principais:")
         print(f"   ⏱️  Tempo de simulação: {self.config['intervalo_tempo_simulacao_horas']}h")
-        print(f"   📡 Total de sensores: {self.config['n_sensores']}")
+        print(f"   📡 Total de sensores: {total_sensores}")
         print(f"   🏙️  Cidades: {len(self.config['sensores_por_cidade'])}")
         print(f"   📊 Passagens por veículo: {self.config['n_passagens_min']}-{self.config['n_passagens_max']}")
     
     def distribuir_sensores(self) -> None:
         """Distribui sensores pelas cidades conforme configuração."""
-        print(f"📡 Distribuindo {self.config['n_sensores']} sensores...")
+        total_sensores = sum(self.config['sensores_por_cidade'].values())
+        print(f"📡 Distribuindo {total_sensores} sensores...")
         
         self.sensores = []
         sensor_id = 1

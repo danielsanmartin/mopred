@@ -538,9 +538,9 @@ def gerar_alertas_xai_shap(gerador_alertas, pares_info, probs, X_teste, shap_val
         print(f"📁 Alertas salvos em: {arquivo_alertas}")
         
         # Exibir exemplo de alerta
-        if len(alertas) > 0:
-            print(f"\n📋 EXEMPLO DE ALERTA JSON-LD:")
-            print(gerador_alertas.to_json(alertas[0], indent=2))
+        # if len(alertas) > 0:
+        #     print(f"\n📋 EXEMPLO DE ALERTA JSON-LD:")
+        #     print(gerador_alertas.to_json(alertas[0], indent=2))
     else:
         limiar_alerta = gerador_alertas.limiar_alerta
         print(f"ℹ️ Nenhum alerta gerado (nenhum caso acima do limiar {limiar_alerta})")

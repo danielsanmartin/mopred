@@ -1,0 +1,69 @@
+# MOPRED .dockerignore
+# Arquivos e pastas a serem ignorados no build do Docker
+
+# ===== DADOS GERADOS =====
+csvs/*
+alertas_gerados/*
+simulacao/*
+!csvs/.gitkeep
+!alertas_gerados/.gitkeep
+
+# ===== AMBIENTE PYTHON =====
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+
+# ===== IDEs E EDITORES =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+
+# ===== SISTEMA DE CONTROLE DE VERSÃO =====
+.git/
+.gitignore
+.gitattributes
+
+# ===== DOCUMENTAÇÃO E HISTÓRICO =====
+docs_historicas/
+*.md
+!README.md
+
+# ===== TESTES E DEBUG =====
+testes/
+*.log
+*.tmp
+debug/
+
+# ===== DOCKER =====
+docker/
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# ===== SISTEMA OPERACIONAL =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== JUPYTER =====
+.ipynb_checkpoints/
+*.ipynb
+
+# ===== ARQUIVOS TEMPORÁRIOS =====
+*.backup
+*.bak
+*.orig
+*.rej

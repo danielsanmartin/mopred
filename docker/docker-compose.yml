@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # ===== SERVIÇO PRINCIPAL (PRODUÇÃO) =====
+  mopred:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    image: mopred:latest
+    container_name: mopred-sistema
+    restart: unless-stopped
+    
+    # Volumes para persistir dados
+    volumes:
+      - ../csvs:/app/csvs
+      - ../alertas_gerados:/app/alertas_gerados
+      - ../configs:/app/configs:ro  # Somente leitura para configs
+    
+    # Variáveis de ambiente
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CONFIG_PATH=/app/configs
+      - TZ=America/Sao_Paulo
+      
+    # Recursos limitados
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    
+    # Logs configurados
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # ===== SERVIÇO DE DESENVOLVIMENTO =====
+  mopred-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: development
+    image: mopred:dev
+    container_name: mopred-dev
+    
+    # Volumes para desenvolvimento (código editável)
+    volumes:
+      - ..:/app
+      - mopred-venv:/app/venv  # Volume nomeado para venv
+    
+    # Portas expostas
+    ports:
+      - "8888:8888"  # Jupyter Lab
+      - "8000:8000"  # API futura
+    
+    # Variáveis de ambiente
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CONFIG_PATH=/app/configs
+      - JUPYTER_ENABLE_LAB=yes
+      - TZ=America/Sao_Paulo
+    
+    # Profile para execução opcional
+    profiles: ["dev"]
+    
+    # Comando customizado para desenvolvimento
+    command: >
+      bash -c "
+        echo '🚀 Iniciando MOPRED em modo desenvolvimento...' &&
+        echo '📋 Acesse Jupyter Lab em: http://localhost:8888' &&
+        echo '📁 Diretório de trabalho: /app' &&
+        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --LabApp.token=''
+      "
+
+  # ===== SERVIÇO PARA ANÁLISE APENAS =====
+  mopred-analysis:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    image: mopred:latest
+    container_name: mopred-analysis
+    
+    volumes:
+      - ../csvs:/app/csvs:ro
+      - ../alertas_gerados:/app/alertas_gerados:ro
+      - ../configs:/app/configs:ro
+    
+    # Profile para execução opcional
+    profiles: ["analysis"]
+    
+    # Comando específico para análise
+    command: ["python", "analisar_resultados.py"]
+
+# ===== VOLUMES NOMEADOS =====
+volumes:
+  mopred-venv:
+    driver: local

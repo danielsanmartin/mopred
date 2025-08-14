@@ -10,7 +10,7 @@ def main():
     
     # Carregar configurações do config.json
     import json
-    with open("config.json", "r", encoding="utf-8") as f:
+    with open("configs/config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
     
     # Criar gerador

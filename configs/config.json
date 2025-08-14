@@ -1,14 +1,13 @@
 {
   "csv_veiculos_path": "csvs/veiculos_gerados_com_clones.csv",
   "percentual_clones_identicos": 0.2,
-  "total_veiculos": 5000,
+  "total_veiculos": 100000,
   "percentual_veiculos_clonados": 0.02,
   "n_passagens_min": 2,
   "n_passagens_max": 2,
   "intervalo_tempo_simulacao_horas": 6,
   "timestamp_inicio": "2025-08-01T00:00:00",
 
-  "n_sensores": 200,
   "sensores_por_cidade": {
     "Florianópolis": 24,
     "Joinville": 20,
