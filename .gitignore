@@ -1,7 +1,3 @@
-# Arquivos de dados gerados automaticamente
-/comparacao_modelos_resultados.csv
-/veiculos_gerados_sem_infracao.csv
-
 # Conteúdo das pastas de dados (manter as pastas, ignorar arquivos)
 
 !csvs/.gitkeep

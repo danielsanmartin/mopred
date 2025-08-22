@@ -1,131 +1,105 @@
 # MOPRED - Sistema de Detecção de Clonagem Veicular
-## Documentação Completa e Organizada
+## Documentação Consolidada (Integrada com `docs_historicas/descricao.md`)
+
+> Versão 2.2.0 • Última atualização: 2025-08-22
 
 ---
 
-# 📋 1. VISÃO GERAL DO PROJETO
+## 1. Visão Geral
 
-## Objetivos Principais
+O MOPRED é um sistema completo para detecção de clonagem veicular que combina:
+* Simulação realística de passagens ALPR
+* Aprendizado adaptativo (concept drift / evolução temporal)
+* Features multimodais (contexto físico + semântico + comportamento)
+* Explicabilidade integrada (SHAP contextual) nos alertas
+* Pseudonimização forte para privacidade
+* Geração de alertas padronizados em JSON-LD
+* Processamento temporal em micro-batches (near-real-time)
 
-Este sistema implementa uma solução completa para detecção de clonagem veicular usando tecnologias de **Machine Learning adaptativo** e **Explicabilidade Artificial (XAI)**. O projeto simula um ambiente real de monitoramento por câmeras ALPR (Automatic License Plate Recognition) e compara diferentes abordagens de detecção ao longo do tempo.
+### Objetivos Principais
+1. Comparar modelos tradicionais vs. adaptativos
+2. Avaliar impacto de features multimodais (3 vs 7 dimensões)
+3. Integrar explicabilidade XAI operacional (SHAP + interpretação dinâmica)
+4. Simular mudanças temporais e drifts comportamentais
+5. Preservar privacidade via pseudonimização irreversível (HMAC-SHA256)
+6. Gerar alertas semânticos interoperáveis (JSON-LD)
+7. Sustentar pesquisa acadêmica em detecção adaptativa de clonagem
 
-### 🎯 Metas do Sistema
-1. **Comparar modelos tradicionais vs. adaptativos** para detecção de clonagem
-2. **Analisar o impacto de features multimodais** (infrações + semelhança visual)  
-3. **Implementar explicabilidade** usando SHAP Values
-4. **Simular mudanças temporais** nos padrões de clonagem
-5. **Garantir privacidade** através de pseudonimização
-6. **Processamento near-real-time** com arquitetura de micro-batches
-7. **Geração de alertas padronizados** em formato JSON-LD com explicabilidade integrada
+### Hipóteses de Pesquisa
+* Modelos adaptativos convergem mais rápido após drift (< 3 janelas)
+* Features multimodais elevam F1 em relação ao conjunto básico
+* Explicabilidade evidencia padrão diferenciado de clones (distância/tempo + semelhança + infrações)
+* Pseudonimização mantém utilidade analítica sem comprometer privacidade
 
 ---
 
-# 🏗️ 2. ARQUITETURA DO SISTEMA
+## 2. Arquitetura Geral
 
-## Componentes Principais
+| Camada | Função | Arquivo(s) |
+|--------|--------|------------|
+| Simulação | Geração de passagens e micro-batches | `simulador_streaming_alpr.py` |
+| Geração de Dados | Veículos e clones sintéticos | `gerador_veiculos.py` |
+| Feature Engineering | Extração 3D e 7D + contexto | `utils.py` |
+| Modelagem | Random Forest (estática) + Adaptive Random Forest | `comparador_modelos.py` |
+| Explicabilidade | SHAP + interpretação dinâmica | `alertas.py`, `validacao_modelo_conceitual.py` |
+| Alertas | JSON-LD + deduplicação + classificação | `alertas.py` |
+| Orquestração Experimental | Pipeline temporal completo | `validacao_modelo_conceitual.py` |
 
-### 2.1 Simulador de Streaming ALPR
-- Gera eventos de passagem de veículos em câmeras distribuídas
-- Simula rotas urbanas e intermunicipais realistas de Santa Catarina
-- Inclui veículos legítimos e clonados com padrões específicos
-- Processamento temporal em micro-batches para análise near-real-time
-
-### 2.2 Sistema de Features Multimodais
+### Features
 ```python
-# Features básicas (3 dimensões)
-[distância_km, tempo_segundos, velocidade_kmh]
+# Básico (3):
+[distancia_km, tempo_segundos, velocidade_kmh]
 
-# Features multimodais (7 dimensões)  
-[distância_km, tempo_segundos, velocidade_kmh, 
- num_infrações, marca_modelo_igual, tipo_igual, cor_igual]
+# Multimodal (7):
+[distancia_km, tempo_segundos, velocidade_kmh,
+ num_infracoes, marca_modelo_igual, tipo_igual, cor_igual]
 ```
 
-### 2.3 Modelos de Machine Learning
-- **Random Forest Tradicional**: Treino estático inicial
-- **Adaptive Random Forest**: Aprendizado incremental online
-- **Variações**: Básico (3 features) vs. Multimodal (7 features)
+### Modelo Adaptativo
+Adaptive Random Forest (aprendizado incremental por janela) preserva histórico enquanto incorpora novos padrões, mitigando perda de desempenho pós-drift.
 
-### 2.4 Sistema de Alertas JSON-LD
-- Geração automática conforme especificação acadêmica
-- Integração de explicabilidade XAI nos alertas
-- Classificação automática por severidade, urgência e certeza
-- Formato semântico estruturado com contexto JSON-LD
+### Processamento Temporal
+Estrutura de micro-batches: cada janela = ciclo completo (atualização adaptativa + avaliação + geração de alertas elegíveis).
 
 ---
 
-# 🔄 3. FLUXO DE EXECUÇÃO
-
-## 3.1 Fase 1: Preparação dos Dados
-```
-1. Geração de eventos simulados
-2. Aplicação de pseudonimização (opcional)
-3. Divisão em fases temporais com características diferentes
-4. Balanceamento com SMOTE (opcional)
-```
-
-## 3.2 Fase 2: Treinamento Inicial
-```
-1. Extração de features de pares de eventos
-2. Treinamento de 2 modelos tradicionais:
-   - Básico (3 features)
-   - Multimodal (7 features)
-3. Inicialização do modelo adaptativo
-```
-
-## 3.3 Fase 3: Simulação Temporal
-```
-Para cada janela temporal (micro-batch):
-1. Treino incremental do modelo adaptativo
-2. Avaliação de todos os modelos
-3. Coleta de métricas (accuracy, precision, recall, F1)
-4. Análise de drift nos padrões
-5. Processamento near-real-time dos eventos
-```
-
-## 3.4 Fase 4: Análise e Explicabilidade
-```
-1. Geração de relatórios comparativos
-2. Explicação SHAP dos casos clonados
-3. Interpretação dinâmica dos impactos
-4. Visualização de resultados
-5. Geração automática de alertas JSON-LD
-6. Consolidação e arquivamento de alertas
-```
+## 3. Fluxo de Execução
+1. Geração / carga de dados sintéticos
+2. Pré-processamento + pseudonimização (opcional)
+3. Extração de pares e features iniciais
+4. Treino inicial dos modelos tradicionais (3D e 7D)
+5. Loop temporal (janelas):
+   * Atualização incremental do modelo adaptativo
+   * Inferência e métricas (Accuracy, Precision, Recall, F1)
+   * Análise de drift implícita (variação métrica entre janelas)
+   * Geração de alertas JSON-LD (score >= limiar)
+6. Consolidação + relatórios + explicabilidade final
 
 ---
 
-# 🧠 4. FUNCIONALIDADES AVANÇADAS
+## 4. Funcionalidades Avançadas
 
-## 4.1 Pseudonimização Segura
-```python
-def pseudonimizar_placa(placa, salt):
-    # Usa HMAC + SHA-256 para gerar pseudônimos irreversíveis
-    # Exemplo: "ABC1234" → "PSEUDO_A1B2C3D4"
-    hash_obj = hmac.new(salt.encode('utf-8'), 
-                       placa.encode('utf-8'), 
-                       hashlib.sha256)
-    return f"PSEUDO_{hash_obj.hexdigest()[:8].upper()}"
-```
+### Pseudonimização (HMAC-SHA256)
+Mantém consistência longitudinal sem expor placas reais.
 
-## 4.2 Balanceamento Inteligente
-- **SMOTE adaptativo**: Balanceia classes automaticamente
-- **Configurável**: Pode ser habilitado/desabilitado via config
-- **k_neighbors adaptativo**: Ajusta baseado no tamanho da menor classe
+### Balanceamento (SMOTE Adaptativo)
+Aplicado condicionalmente conforme configuração e tamanho mínimo de minoria.
 
-## 4.3 Mapeamento Geográfico Inteligente
-- Sistema de coordenadas para 20 cidades de Santa Catarina
-- Cálculo de distância usando fórmula de Haversine
-- Mapeamento automático de coordenadas para cidades mais próximas
-- Zonas quentes configuráveis para análise de padrões regionais
+### Explicabilidade Dinâmica
+Interpretação qualitativa do SHAP por percentis (alto / moderado / baixo impacto) + direção (+/- probabilidade de clonagem).
+
+### Zonas Quentes / Georreferenciamento
+Mapeamento de coordenadas para 20 cidades de SC, cálculo de distância (Haversine) e marcação contextual.
+
+### Deduplicação de Alertas
+Hash de conteúdo semântico para evitar múltiplos alertas equivalentes na mesma janela.
 
 ---
 
-# 🚨 5. SISTEMA DE ALERTAS JSON-LD
+## 5. Sistema de Alertas JSON-LD
+Estrutura semântica com contexto versionado, incluindo classificação automática (severidade, urgência, certeza) derivada do score.
 
-## 5.1 Visão Geral
-O sistema gera alertas padronizados em JSON-LD conforme especificação da tese de doutorado. Os alertas incluem explicabilidade XAI integrada e são classificados automaticamente.
-
-## 5.2 Estrutura do Alerta JSON-LD
+Exemplo (resumido):
 ```json
 {
   "@context": "https://www.mopred.org/schemas/alerta/v1",
@@ -133,106 +107,38 @@ O sistema gera alertas padronizados em JSON-LD conforme especificação da tese 
   "id": "urn:uuid:...",
   "identificadorSistema": "MOPRED-SC-01",
   "timestampEmissao": "2025-08-13T00:39:48Z",
-  "status": "Real",
-  "escopo": "Restrito",
-  
-  "info": {
-    "evento": "Comportamento Veicular Suspeito",
-    "severidade": "Alta|Média|Baixa",
-    "urgencia": "Imediata|Próxima|Rotina",
-    "certeza": "Provável|Possível|Indeterminado",
-    "descricao": "Descrição automática baseada no score",
-    "instrucao": "Instruções operacionais",
-    "parametrosPreditivos": [...]
-  },
-  
-  "area": {
-    "descricaoArea": "Localização geográfica",
-    "geometria": {
-      "@type": "Ponto",
-      "coordenadas": [lat, lon]
-    }
-  },
-  
-  "recursos": [
-    {
-      "descricaoRecurso": "Contexto da Inferência",
-      "mimeType": "application/json",
-      "conteudo": {
-        "explicabilidade": "Dados SHAP integrados",
-        "confianca": "Score de predição",
-        "contexto": "Metadados do evento"
-      }
-    }
-  ]
+  "info": { "evento": "Comportamento Veicular Suspeito", "severidade": "Alta" },
+  "recursos": [{"descricaoRecurso": "Contexto da Inferência", "conteudo": {"metodo": "SHAP"}}]
 }
 ```
 
-## 5.3 Características dos Alertas
-- **Geração Automática**: Durante processamento de janelas temporais
-- **Explicabilidade XAI**: Valores SHAP integrados nos alertas
-- **Classificação Inteligente**: Severidade, urgência e certeza automáticas
-- **Deduplicação**: Sistema evita alertas duplicados
-- **Pasta Configurável**: Salvamento em pasta configurada via `config.json`
+Arquivos gerados:
+* `alertas_janela_XXX.ndjson`
+* `alertas_consolidados.ndjson`
+* `alertas_gerados.ndjson` (explicabilidade agregada)
 
 ---
 
-# 📁 6. ESTRUTURA DO PROJETO
-
-## 6.1 Estrutura Final Organizada
-
+## 6. Estrutura de Diretórios (Essencial)
 ```
-d:\Workspace\mopred\
-├── 📂 configs/                           # Configurações
-│   ├── config.json                      # Configuração principal
-│   └── caracteristicas_veiculos.json    # Especificações de veículos
-├── 📂 csvs/                              # Dados CSV organizados
-│   ├── comparacao_modelos_resultados.csv
-│   ├── passagens.csv
-│   ├── passagens_streaming.csv
-│   ├── veiculos_gerados_com_clones.csv
-│   └── veiculos_gerados_sem_infracao.csv
-├── 📂 alertas_gerados/                   # Alertas JSON-LD
-│   ├── alertas_consolidados.ndjson
-│   ├── alertas_gerados.ndjson
-│   ├── alertas_janela_001.ndjson
-│   ├── alertas_janela_002.ndjson
-│   └── ... (outros arquivos de janela)
-├── 📂 testes/                            # Testes organizados
-│   ├── 📄 README.md
-│   ├── 📂 correcoes_cidades/             # Correção do mapeamento
-│   │   ├── debug_cidades.py
-│   │   ├── teste_correcao_cidades.py
-│   │   ├── teste_alertas_cidades.py
-│   │   └── verificar_correcao_final.py
-│   ├── 📂 validacao_alertas/             # Validação de alertas
-│   │   ├── testar_alertas.py
-│   │   ├── testar_formatacao_alertas.py
-│   │   ├── teste_pasta_alertas.py
-│   │   ├── validar_pasta_alertas.py
-│   │   ├── validar_correcoes.py
-│   │   └── verificar_correcoes.py
-│   ├── 📂 debug_geral/                   # Debug geral
-│   │   ├── debug_processamento.py
-│   │   └── verificar_caracteristicas_clones.py
-│   └── 📂 demos/                         # Demonstrações
-│       └── demo_controle_alertas.py
-├── 📄 validacao_modelo_conceitual.py     # Arquivo principal
-├── 📄 alertas.py                         # Sistema de alertas
-├── 📄 comparador_modelos.py              # Comparador de modelos
-├── 📄 simulador_streaming_alpr.py        # Simulador principal
-├── 📄 gerador_veiculos.py                # Gerador de veículos
-├── 📄 utils.py                           # Utilitários
-└── 📄 README.md                          # Esta documentação
+configs/                # Configurações principais
+csvs/                   # Saídas e datasets sintéticos
+alertas_gerados/        # Alertas JSON-LD por janela + consolidados
+validacao_modelo_conceitual.py
+simulador_streaming_alpr.py
+comparador_modelos.py
+alertas.py
+gerador_veiculos.py
+utils.py
 ```
+
+Arquivo histórico preservado em `docs_historicas/descricao.md` (conteúdo agora incorporado aqui).
 
 ---
 
-# ⚙️ 7. CONFIGURAÇÃO DO SISTEMA
+## 7. Configurações Atuais (`configs/config.json`)
 
-## 7.1 Arquivo configs/config.json
-
-### Configurações Principais
+### Parâmetros Principais
 ```json
 {
   "csv_veiculos_path": "csvs/veiculos_gerados_com_clones.csv",
@@ -244,7 +150,7 @@ d:\Workspace\mopred\
 }
 ```
 
-### Configurações de Modelos
+### Modelos e Privacidade
 ```json
 {
   "n_jobs": 4,
@@ -255,7 +161,7 @@ d:\Workspace\mopred\
 }
 ```
 
-### Configurações de Alertas
+### Alertas
 ```json
 {
   "gerar_alertas": true,
@@ -265,188 +171,90 @@ d:\Workspace\mopred\
 }
 ```
 
-### Configurações de Organização
+### Organização
 ```json
 {
   "pasta_csvs": "csvs"
 }
 ```
 
-## 7.2 Cidades de Santa Catarina
-O sistema trabalha com 20 cidades principais de SC, incluindo coordenadas geográficas e distribuição de sensores:
-
-**Cidades Principais**: Florianópolis, Joinville, Blumenau, Chapecó, Itajaí, São José, Criciúma, Lages, Palhoça, Balneário Camboriú
-
-**Zonas Quentes**: Florianópolis, Chapecó, Criciúma (configuráveis)
+### Cidades e Zonas
+* 20 cidades SC mapeadas (Florianópolis, Joinville, Blumenau, Chapecó, Criciúma, Itajaí, São José, Lages, Palhoça, Balneário Camboriú, ...)
+* Zonas quentes padrão: Florianópolis, Chapecó, Criciúma
 
 ---
 
-# 🧪 8. SISTEMA DE TESTES
-
-## 8.1 Categorias de Testes
-
-### Correções de Cidades (`testes/correcoes_cidades/`)
-- `debug_cidades.py` - Debug do mapeamento de coordenadas
-- `teste_correcao_cidades.py` - Validação do sistema de cidades
-- `teste_alertas_cidades.py` - Teste de alertas com cidades corretas
-
-### Validação de Alertas (`testes/validacao_alertas/`)
-- `testar_alertas.py` - Teste principal do módulo de alertas
-- `testar_formatacao_alertas.py` - Teste de formatação JSON-LD
-- `validar_pasta_alertas.py` - Validação do sistema de pastas
-
-### Debug Geral (`testes/debug_geral/`)
-- `debug_processamento.py` - Debug do pipeline principal
-- `verificar_caracteristicas_clones.py` - Verificação de características
-
-### Demonstrações (`testes/demos/`)
-- `demo_controle_alertas.py` - Demo do controle de alertas
-
-## 8.2 Como Executar Testes
-```bash
-cd "d:\Workspace\mopred"
-python testes/[categoria]/[arquivo].py
-```
+## 8. Métricas e Monitoramento
+* Accuracy, Precision, Recall, F1 (por janela)
+* Evolução temporal vs. modelo adaptativo
+* Impacto das features via SHAP
+* Detecção implícita de drift (quedas abruptas / recuperação adaptativa)
 
 ---
 
-# 🔧 9. FUNCIONALIDADES IMPLEMENTADAS
-
-## 9.1 Organização de Arquivos
-- ✅ **Configurações**: Pasta `configs/` para arquivos de configuração
-- ✅ **CSVs**: Pasta `csvs/` para dados tabulares
-- ✅ **Alertas**: Pasta `alertas_gerados/` para alertas JSON-LD
-- ✅ **Testes**: Pasta `testes/` com subcategorias organizadas
-
-## 9.2 Sistema de Alertas
-- ✅ **Geração Automática**: Alertas criados durante processamento
-- ✅ **Formato JSON-LD**: Padrão semântico estruturado
-- ✅ **Explicabilidade XAI**: Valores SHAP integrados
-- ✅ **Deduplicação**: Evita alertas duplicados
-- ✅ **Pasta Configurável**: Salvamento flexível
-
-## 9.3 Mapeamento Geográfico
-- ✅ **20 Cidades SC**: Coordenadas e distribuição de sensores
-- ✅ **Cálculo de Distâncias**: Fórmula de Haversine
-- ✅ **Zonas Quentes**: Áreas de maior atenção configuráveis
-- ✅ **Mapeamento Inteligente**: Coordenadas → cidade mais próxima
-
-## 9.4 Processamento de Dados
-- ✅ **Pseudonimização**: HMAC + SHA-256 para privacidade
-- ✅ **SMOTE Balanceamento**: Classes balanceadas automaticamente
-- ✅ **Features Multimodais**: 7 dimensões incluindo semelhança visual
-- ✅ **Processamento Paralelo**: n_jobs configurável
-
-## 9.5 Modelos Adaptativos
-- ✅ **Random Forest Tradicional**: Baseline estático
-- ✅ **Adaptive Random Forest**: Aprendizado incremental
-- ✅ **Comparação Automática**: Métricas lado a lado
-- ✅ **Análise Temporal**: Janelas de processamento
+## 9. Explicabilidade (SHAP)
+* Cálculo por janela para casos positivos
+* Interpretação categorizada (Alto / Moderado / Baixo impacto)
+* Integração direta nos alertas (campo recursos)
+* Consolidação final em `alertas_gerados.ndjson`
 
 ---
 
-# 🎯 10. PRINCIPAIS EVOLUÇÕES DO PROJETO
+## 10. Evoluções e Correções Relevantes
+| Problema | Solução |
+|----------|---------|
+| Duplicação de alertas (janela 007) | Deduplicação por hash de conteúdo |
+| Erro SHAP (arrays numpy heterogêneos) | Normalização e conversão segura |
+| Cidades aparecendo N/A | Mapeamento coordenadas → cidade mais próxima |
 
-## 10.1 Correção de Problemas Técnicos
-- **Problema**: Alertas duplicados na janela 007 (~2000 linhas)
-- **Solução**: Sistema de deduplicação baseado em conteúdo
-
-- **Problema**: Erro SHAP com arrays numpy
-- **Solução**: Tratamento robusto de diferentes tipos de dados SHAP
-
-- **Problema**: Cidades aparecendo como "N/A" nos alertas
-- **Solução**: Sistema de mapeamento coordenadas → cidades
-
-## 10.2 Organizações Estruturais
-- **Implementação**: Sistema de pastas configuráveis para alertas
-- **Implementação**: Organização completa dos arquivos de teste
-- **Implementação**: Pasta dedicada para arquivos CSV
-- **Implementação**: Renomeação do arquivo principal para contexto acadêmico
-
-## 10.3 Melhorias de Funcionalidade
-- **Sistema de Alertas JSON-LD**: Formato padronizado com explicabilidade
-- **Mapeamento Geográfico**: 20 cidades de SC com coordenadas precisas
-- **Pseudonimização**: Privacidade garantida com salt configurável
-- **Configuração Flexível**: Sistema completamente configurável via JSON
+Outras: reorganização de pastas, parametrização completa de caminhos, robustez em pseudonimização.
 
 ---
 
-# 🚀 11. COMO USAR O SISTEMA
+## 11. Segurança e Privacidade
+* Pseudonimização HMAC-SHA256 com salt configurável
+* Logs sem dados sensíveis diretos
+* Reprodutibilidade preservada sem reversibilidade de placas
 
-## 11.1 Execução Principal
+---
+
+## 12. Limitações Atuais
+* Near-real-time baseado em micro-batches (não streaming evento-a-evento)
+* Limiar fixo por configuração (não adaptativo ainda)
+* Ausência de detecção explícita formal de drift (implícita via métricas)
+
+### Próximos Passos Sugeridos
+1. Ajuste dinâmico de limiar (calibração por janela)
+2. Módulo de detecção de concept drift dedicado
+3. Persistência incremental de estado adaptativo entre execuções
+4. Painel interativo (dashboard) para métricas e alertas
+5. Integração opcional com mensageria (Kafka / MQTT)
+
+---
+
+## 13. Como Executar
 ```bash
-cd "d:\Workspace\mopred"
-python validacao_modelo_conceitual.py
-```
-
-## 11.2 Configuração Personalizada
-1. Edite `configs/config.json` conforme necessário
-2. Ajuste parâmetros de modelos, alertas e organização
-3. Execute o sistema principal
-
-## 11.3 Geração de Veículos
-```bash
-python gerador_veiculos.py
-```
-
-## 11.4 Execução de Testes Específicos
-```bash
+python validacao_modelo_conceitual.py         # Execução principal
+python gerador_veiculos.py                    # Geração de dataset sintético
 python testes/validacao_alertas/testar_alertas.py
-python testes/correcoes_cidades/teste_correcao_cidades.py
 ```
 
----
-
-# 📊 12. MÉTRICAS E RESULTADOS
-
-## 12.1 Métricas Coletadas
-- **Accuracy**: Precisão geral dos modelos
-- **Precision**: Precisão para detecção de clonagem
-- **Recall**: Taxa de detecção de casos clonados
-- **F1-Score**: Média harmônica precision/recall
-- **Análise Temporal**: Evolução das métricas por janela
-
-## 12.2 Comparações Realizadas
-- **Tradicional vs. Adaptativo**: Modelos estáticos vs. incrementais
-- **Básico vs. Multimodal**: 3 vs. 7 features
-- **Com/Sem SMOTE**: Impacto do balanceamento
-- **Com/Sem Pseudonimização**: Análise de privacidade
-
-## 12.3 Explicabilidade XAI
-- **Valores SHAP**: Contribuição de cada feature
-- **Interpretação Dinâmica**: Impacto alto/médio/baixo
-- **Casos Clonados**: Análise detalhada dos fatores decisivos
-- **Integração em Alertas**: Explicabilidade diretamente nos alertas
+### Passos para Configuração Customizada
+1. Editar `configs/config.json`
+2. (Opcional) Regenerar veículos
+3. Rodar pipeline principal
+4. Inspecionar `alertas_gerados/` e métricas em CSV
 
 ---
 
-# 🎉 13. STATUS ATUAL DO PROJETO
-
-## ✅ Funcionalidades Completamente Implementadas
-- Sistema de detecção de clonagem com modelos adaptativos
-- Geração automática de alertas JSON-LD com explicabilidade XAI
-- Mapeamento geográfico inteligente para Santa Catarina
-- Organização completa de arquivos e configurações
-- Sistema de testes abrangente e organizado
-- Pseudonimização segura para proteção de privacidade
-- Processamento near-real-time com micro-batches
-
-## 🏆 Principais Conquistas
-- **Estrutura Profissional**: Projeto organizado para contexto acadêmico
-- **Padrões de Qualidade**: Código limpo e bem documentado
-- **Flexibilidade**: Sistema completamente configurável
-- **Explicabilidade**: XAI integrado em todo o pipeline
-- **Escalabilidade**: Arquitetura preparada para expansão
-
-## 🚀 Pronto Para Uso
-O sistema está **completamente funcional** e pronto para:
-- Análises acadêmicas e experimentação
-- Desenvolvimento de pesquisas em detecção de clonagem
-- Demonstrações e apresentações
-- Extensões e melhorias futuras
+## 14. Estado Atual
+* Núcleo funcional completo
+* Documentação unificada
+* Pronto para experimentos acadêmicos e extensão
 
 ---
 
-**MOPRED - Sistema de Detecção de Clonagem Veicular**  
-*Desenvolvido para Tese de Doutorado - 2025*  
-*Versão: 2.1.3 - Documentação Consolidada*
+**MOPRED – Sistema de Detecção de Clonagem Veicular**  
+Desenvolvido para Tese de Doutorado – 2025  
+Documentação Consolidada v2.2.0
+
