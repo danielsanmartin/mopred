@@ -5,14 +5,237 @@ Análise Visual dos Resultados da Comparação de Modelos
 Gera gráficos e relatórios detalhados da comparação RF Tradicional vs Adaptativo.
 """
 
-import pandas as pd
+import os
+import json
 import numpy as np
+import pandas as pd
+from sklearn.metrics import average_precision_score, brier_score_loss
+from scipy.stats import wilcoxon
 
-def analisar_resultados():
-    # ... Bloco de conclusão automática será movido para depois do cálculo das médias ...
-    # ...existing code...
+def _bootstrap_ci(values, n_boot: int = 1000, alpha: float = 0.05, seed: int = 42):
+    """IC bootstrap da média (ex.: 95%) para um vetor de métricas."""
+    vals = np.asarray(values, dtype=float)
+    vals = vals[~np.isnan(vals)]
+    if vals.size == 0:
+        return (np.nan, np.nan)
+    rng = np.random.default_rng(seed)
+    means = [rng.choice(vals, size=vals.size, replace=True).mean() for _ in range(n_boot)]
+    lo = np.percentile(means, 100 * (alpha/2))
+    hi = np.percentile(means, 100 * (1 - alpha/2))
+    return float(lo), float(hi)
+
+def _imprimir_ic_e_wilcoxon(df: pd.DataFrame):
+    """Imprime IC 95% (bootstrap) por cenário e Wilcoxon pareado por janela (names case-insensitive)."""
+    if "janela" not in df.columns:
+        print("\n⚠️ Séries por janela ausentes; não é possível calcular IC/Wilcoxon.")
+        return
+
+    # Mapeamento case-insensitive de colunas
+    cols_lower = {c.lower(): c for c in df.columns}
+    def col(name_variants: list[str]) -> str | None:
+        for n in name_variants:
+            c = cols_lower.get(n.lower())
+            if c is not None:
+                return c
+        return None
+
+    chave = "tipo" if col(["tipo"]) else "modelo"
+    if chave not in df.columns:
+        print("\n⚠️ Coluna de cenário ausente (tipo/modelo).")
+        return
+
+    grupos = {
+        "Tradicional": df[df[chave].isin(["tradicional", "Tradicional"])],
+        "Trad+Multi": df[df[chave].isin(["tradicional_multimodal", "Trad+Multi"])],
+        "Adaptativo": df[df[chave].isin(["adaptativo", "Adaptativo"])],
+        "Adapt+Multi": df[df[chave].isin(["adaptativo_multimodal", "Adapt+Multi"])],
+    }
+
+    # Resolver nomes reais das métricas
+    f1_col = col(["f1", "F1"])
+    auprc_col = col(["auprc", "AUCPR"])
+    brier_col = col(["brier", "Brier"])
+
+    print("\n📏 IC 95% (bootstrap) por cenário:")
+    for nome, g in grupos.items():
+        if g.empty:
+            continue
+        for label, met_col in [("F1", f1_col), ("AUCPR", auprc_col), ("Brier", brier_col)]:
+            if met_col is None or met_col not in g.columns:
+                continue
+            vals = g[met_col].values
+            media = float(np.nanmean(vals))
+            lo, hi = _bootstrap_ci(vals, n_boot=1000, alpha=0.05, seed=42)
+            print(f"   {nome:14} {label:6} = {media:.3f} [{lo:.3f}, {hi:.3f}]")
+
+    def _serie(df_mod: pd.DataFrame, metric_col: str) -> pd.Series:
+        s = df_mod.set_index("janela")[metric_col]
+        return s[~s.isna()]
+
+    print("\n🧪 Teste de Wilcoxon (pareado por janela):")
+    for (m1, m2) in [("Tradicional", "Adaptativo"), ("Trad+Multi", "Adapt+Multi")]:
+        g1, g2 = grupos.get(m1), grupos.get(m2)
+        if g1 is None or g2 is None or g1.empty or g2.empty:
+            continue
+        for label, met_col in [("F1", f1_col), ("AUCPR", auprc_col)]:
+            if met_col is None or met_col not in g1.columns or met_col not in g2.columns:
+                continue
+            s1, s2 = _serie(g1, met_col), _serie(g2, met_col)
+            idx = s1.index.intersection(s2.index)
+            if len(idx) < 5:
+                continue
+            stat, p = wilcoxon(s1.loc[idx], s2.loc[idx], zero_method="wilcox")
+            print(f"   {m1:12} vs {m2:12} — {label}: n={len(idx)}  W={stat:.1f}  p={p:.4f}")
+
+def _imprimir_metricas_complementares(df: pd.DataFrame):
+    """Imprime AUCPR, Brier e prevalência média por cenário.
+    Recalcula métricas por linha quando ausentes/NaN usando y_true/y_score.
+    """
+    import numpy as np, json
+    from sklearn.metrics import average_precision_score, brier_score_loss
+
+    df = df.copy()
+    tem_y_cols = {"y_true", "y_score"} <= set(df.columns)
+    if not tem_y_cols:
+        print("\nℹ️ Observação: arquivo de resultados não contém colunas y_true/y_score. \n   AUCPR e Brier exigem probabilidades; para habilitar, reexecute o passo 2 (validação) para regenerar o CSV.")
+
+    # Parse listas uma vez se disponível
+    yt_list = None
+    ys_list = None
+    if tem_y_cols:
+        def _parse_series(col):
+            try:
+                return df[col].apply(lambda s: json.loads(s) if isinstance(s, str) and s.strip() != '' else None)
+            except Exception:
+                return pd.Series([None] * len(df))
+        yt_list = _parse_series("y_true")
+        ys_list = _parse_series("y_score")
+
+    # Garantir colunas de métricas existem
+    if "auprc" not in df.columns:
+        df["auprc"] = np.nan
+    if "brier" not in df.columns:
+        df["brier"] = np.nan
+
+    # Preencher AUCPR/Brier onde estiver NaN e houver dados
+    if tem_y_cols:
+        def _row_auprc(i):
+            try:
+                yt = yt_list.iloc[i]; ys = ys_list.iloc[i]
+                if isinstance(yt, list) and isinstance(ys, list) and len(yt) == len(ys) and len(yt) > 0:
+                    # AUCPR precisa de pelo menos 2 classes distintas
+                    return average_precision_score(yt, ys) if len(set(yt)) > 1 else np.nan
+            except Exception:
+                pass
+            return np.nan
+        def _row_brier(i):
+            try:
+                yt = yt_list.iloc[i]; ys = ys_list.iloc[i]
+                if isinstance(yt, list) and isinstance(ys, list) and len(yt) == len(ys) and len(yt) > 0:
+                    return brier_score_loss(yt, ys)
+            except Exception:
+                pass
+            return np.nan
+        mask_au = df["auprc"].isna()
+        mask_br = df["brier"].isna()
+        if mask_au.any():
+            df.loc[mask_au, "auprc"] = [ _row_auprc(i) for i in df.index[mask_au] ]
+        if mask_br.any():
+            df.loc[mask_br, "brier"] = [ _row_brier(i) for i in df.index[mask_br] ]
+
+    # Prevalência observada (calcula de y_true quando houver; senão, usa n_suspeitos/n_amostras)
+    if "prevalencia_observada" not in df.columns:
+        df["prevalencia_observada"] = np.nan
+    if tem_y_cols:
+        def _prev_val(i):
+            try:
+                yt = yt_list.iloc[i]
+                return float(np.mean(yt)) if isinstance(yt, list) and len(yt) else np.nan
+            except Exception:
+                return np.nan
+        mask_prev = df["prevalencia_observada"].isna()
+        if mask_prev.any():
+            df.loc[mask_prev, "prevalencia_observada"] = [ _prev_val(i) for i in df.index[mask_prev] ]
+    else:
+        # Fallback a partir de contagens agregadas
+        if {"n_suspeitos", "n_amostras"} <= set(df.columns):
+            with np.errstate(divide='ignore', invalid='ignore'):
+                frac = df["n_suspeitos"].astype(float) / df["n_amostras"].replace({0: np.nan}).astype(float)
+            mask_prev = df["prevalencia_observada"].isna()
+            df.loc[mask_prev, "prevalencia_observada"] = frac
+
+    # Mapear cenários (ajuste conforme suas labels/coluna)
+    # Suporta 'tipo' ou 'modelo' com nomes padronizados
+    if "tipo" in df.columns:
+        grupos = {
+            "Tradicional": df[df["tipo"]=="tradicional"],
+            "Trad+Multi": df[df["tipo"]=="tradicional_multimodal"],
+            "Adaptativo": df[df["tipo"]=="adaptativo"],
+            "Adapt+Multi": df[df["tipo"]=="adaptativo_multimodal"],
+        }
+    else:
+        grupos = { n: g for n,g in df.groupby("modelo") }
+
+    def _safe_mean(series):
+        arr = series.to_numpy(dtype=float)
+        return float(np.nanmean(arr)) if arr.size else float("nan")
+
+    print("\n📐 MÉTRICAS COMPLEMENTARES (médias por cenário):")
+    for nome, d in grupos.items():
+        if d.empty: 
+            continue
+        print(f"   {nome:14}  AUCPR={_safe_mean(d.get('auprc', pd.Series(dtype=float))):.3f}  "
+              f"Brier={_safe_mean(d.get('brier', pd.Series(dtype=float))):.3f}  "
+              f"Prev={_safe_mean(d.get('prevalencia_observada', pd.Series(dtype=float))):.3f}")
+
+def _get_csv_path():
+    """Resolve o caminho do CSV usando configs/config.json (pasta_csvs), com fallback para 'csvs'."""
+    try:
+        with open("configs/config.json", "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        pasta_csvs = cfg.get("pasta_csvs", "csvs")
+    except Exception:
+        pasta_csvs = "csvs"
+    return os.path.join(pasta_csvs, "comparacao_modelos_resultados.csv")
+
+def analisar_resultados():  
     # Carregar resultados
-    df = pd.read_csv("csvs/comparacao_modelos_resultados.csv")
+    csv_path = _get_csv_path()
+    df = pd.read_csv(csv_path)
+    _imprimir_metricas_complementares(df)
+    _imprimir_ic_e_wilcoxon(df)            # novo: IC 95% e Wilcoxon
+    # Enriquecer: parse de y_true/y_score quando disponíveis
+    def parse_scores(col):
+        try:
+            return df[col].apply(lambda s: json.loads(s) if isinstance(s, str) and s.strip() != '' else None)
+        except Exception:
+            return pd.Series([None] * len(df))
+
+    if 'y_true' in df.columns and 'y_score' in df.columns:
+        df['y_true_list'] = parse_scores('y_true')
+        df['y_score_list'] = parse_scores('y_score')
+
+    # Se as colunas auprc/brier não existem mas temos listas, compute on-the-fly
+    if 'auprc' not in df.columns and 'y_true_list' in df.columns and 'y_score_list' in df.columns:
+        def _row_auprc(row):
+            yt, ys = row.get('y_true_list'), row.get('y_score_list')
+            try:
+                if isinstance(yt, list) and isinstance(ys, list) and len(yt) == len(ys) and len(set(yt)) > 1:
+                    return average_precision_score(yt, ys)
+            except Exception:
+                pass
+            return np.nan
+        def _row_brier(row):
+            yt, ys = row.get('y_true_list'), row.get('y_score_list')
+            try:
+                if isinstance(yt, list) and isinstance(ys, list) and len(yt) == len(ys):
+                    return brier_score_loss(yt, ys)
+            except Exception:
+                pass
+            return np.nan
+        df['auprc'] = df.apply(_row_auprc, axis=1)
+        df['brier'] = df.apply(_row_brier, axis=1)
+
     # Separar por tipo de modelo
     df_trad = df[df['tipo'] == 'tradicional'].reset_index(drop=True)
     df_trad_multi = df[df['tipo'] == 'tradicional_multimodal'].reset_index(drop=True)
@@ -66,12 +289,40 @@ def analisar_resultados():
     print(conclusao_impacto(acc_trad_multi - acc_trad, "Random Forest Tradicional (Accuracy)"))
     print(conclusao_impacto(f1_adapt_multi - f1_adapt, "Random Forest Adaptativo (F1-score)"))
     print(conclusao_impacto(acc_adapt_multi - acc_adapt, "Random Forest Adaptativo (Accuracy)"))
+
+    # Teste pareado de Wilcoxon para F1 entre básico e multimodal em cada paradigma
+    try:
+        if len(df_trad) and len(df_trad_multi):
+            comum = sorted(set(df_trad['janela']).intersection(df_trad_multi['janela']))
+            x = [df_trad[df_trad['janela']==j]['f1'].values[0] for j in comum]
+            y = [df_trad_multi[df_trad_multi['janela']==j]['f1'].values[0] for j in comum]
+            if len(comum) >= 5:
+                stat, p = wilcoxon(x, y, zero_method='wilcox', alternative='two-sided', method='approx')
+                print(f"\n🧪 Wilcoxon Trad vs Trad+Multi (F1) sobre {len(comum)} janelas: p={p:.4f}")
+        if len(df_adapt) and len(df_adapt_multi):
+            comum = sorted(set(df_adapt['janela']).intersection(df_adapt_multi['janela']))
+            x = [df_adapt[df_adapt['janela']==j]['f1'].values[0] for j in comum]
+            y = [df_adapt_multi[df_adapt_multi['janela']==j]['f1'].values[0] for j in comum]
+            if len(comum) >= 5:
+                stat, p = wilcoxon(x, y, zero_method='wilcox', alternative='two-sided', method='approx')
+                print(f"🧪 Wilcoxon Adapt vs Adapt+Multi (F1) sobre {len(comum)} janelas: p={p:.4f}")
+    except Exception as e:
+        print(f"⚠️ Falha no Wilcoxon: {e}")
     """Análise detalhada dos resultados."""
     print("📊 ANÁLISE DETALHADA DOS RESULTADOS")
     print("=" * 60)
     
-    # Carregar resultados
-    df = pd.read_csv("csvs/comparacao_modelos_resultados.csv")
+    # Carregar resultados (mesmo caminho)
+    df = pd.read_csv(csv_path)
+    # Garantir prevalência observada disponível após recarga
+    if 'prevalencia_observada' not in df.columns and 'y_true' in df.columns:
+        def _prev_from_json(s):
+            try:
+                arr = json.loads(s) if isinstance(s, str) else None
+                return float(np.mean(arr)) if isinstance(arr, list) and len(arr) else np.nan
+            except Exception:
+                return np.nan
+        df['prevalencia_observada'] = df['y_true'].apply(_prev_from_json)
     
     # Separar por tipo de modelo
     df_trad = df[df['tipo'] == 'tradicional'].reset_index(drop=True)
@@ -136,6 +387,15 @@ def analisar_resultados():
         adapt_delta = f1_adapt_multi - f1_adapt if f1_adapt is not None and f1_adapt_multi is not None else None
         print(f"     Tradicional: ΔF1 = {trad_delta:+.3f}" if trad_delta is not None else "     Tradicional: ΔF1 = N/A")
         print(f"     Adaptativo:  ΔF1 = {adapt_delta:+.3f}" if adapt_delta is not None else "     Adaptativo:  ΔF1 = N/A")
+
+        # Complementar: AUCPR e Brier por janela se disponíveis
+        if 'auprc' in df.columns and 'brier' in df.columns:
+            au_trad = get_metric(df_trad, janela, 'auprc'); au_adapt = get_metric(df_adapt, janela, 'auprc')
+            au_trad_m = get_metric(df_trad_multi, janela, 'auprc'); au_adapt_m = get_metric(df_adapt_multi, janela, 'auprc')
+            br_trad = get_metric(df_trad, janela, 'brier'); br_adapt = get_metric(df_adapt, janela, 'brier')
+            br_trad_m = get_metric(df_trad_multi, janela, 'brier'); br_adapt_m = get_metric(df_adapt_multi, janela, 'brier')
+            print(f"   AUCPR: Trad={au_trad if au_trad is not None else np.nan:.3f} | Trad+Multi={au_trad_m if au_trad_m is not None else np.nan:.3f} | Adapt={au_adapt if au_adapt is not None else np.nan:.3f} | Adapt+Multi={au_adapt_m if au_adapt_m is not None else np.nan:.3f}")
+            print(f"   Brier: Trad={br_trad if br_trad is not None else np.nan:.3f} | Trad+Multi={br_trad_m if br_trad_m is not None else np.nan:.3f} | Adapt={br_adapt if br_adapt is not None else np.nan:.3f} | Adapt+Multi={br_adapt_m if br_adapt_m is not None else np.nan:.3f}")
     
     # Análise por fase
     print(f"\n📊 ANÁLISE POR FASE (IMPACTO DA MULTIMODALIDADE):")
@@ -240,6 +500,24 @@ def analisar_resultados():
         print()
     
     return df_trad, df_trad_multi, df_adapt, df_adapt_multi
+
+def _linha_metricas_por_janela(janela_id, modelo_nome, y_true, y_score, f1, acc, auprc, brier, extras=None):
+    import numpy as np, json
+    prev_obs = float(np.mean(y_true)) if len(y_true) else float("nan")
+    linha = {
+        "janela": janela_id,
+        "modelo": modelo_nome,
+        "F1": f1,
+        "Accuracy": acc,
+        "AUCPR": auprc,
+        "Brier": brier,
+        "y_true": json.dumps(list(map(int, y_true))),
+        "y_score": json.dumps(list(map(float, y_score))),
+        "prevalencia_observada": prev_obs,
+    }
+    if extras:
+        linha.update(extras)
+    return linha
 
 if __name__ == "__main__":
     try:

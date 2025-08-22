@@ -214,20 +214,15 @@ def extrair_explicabilidade_shap(shap_values, feature_names, feature_values, mod
     }
     
     for i, (feature, shap_val, feat_val) in enumerate(zip(feature_names, shap_values, feature_values)):
-        # Extrair valor SHAP (pode ser array ou escalar)
         if isinstance(shap_val, (list, tuple)) and len(shap_val) > 1:
             impacto = float(shap_val[1])  # Classe positiva
         elif hasattr(shap_val, '__len__') and len(shap_val) > 1:
-            # Array numpy ou similar
             impacto = float(shap_val[1])  # Classe positiva
         elif hasattr(shap_val, '__len__') and len(shap_val) == 1:
-            # Array numpy com um elemento
             impacto = float(shap_val[0])
         elif hasattr(shap_val, 'item'):
-            # Escalar numpy
             impacto = float(shap_val.item())
         else:
-            # Escalar Python normal
             impacto = float(shap_val)
         
         contribuicoes.append({

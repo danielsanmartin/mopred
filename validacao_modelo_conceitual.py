@@ -814,10 +814,11 @@ def main(config=None):
             print("⚠️ Arquivo configs/config.json não encontrado")
             config = {}
     
-
     try:
         # 1. Inicializar simulador
-        simulador = SimuladorStreamingALPR("configs/config.json")
+        # Usar o mesmo arquivo de config do cenário quando disponível
+        cfg_path = config.get("_config_path", "configs/config.json") if config else "configs/config.json"
+        simulador = SimuladorStreamingALPR(cfg_path)
         eventos = simulador.executar_simulacao_completa()
 
         if not eventos:
@@ -888,15 +889,13 @@ def main(config=None):
                     janela_contador += 1
                     continue
 
-                # Processar janela para modelo adaptativo (treino incremental)
-                # Somente a partir da segunda janela (primeira é baseline)
-                if janela_contador > 1:
-                    comparador.processar_janela_adaptativo(janela_eventos, multimodal=False)
-                    comparador.processar_janela_adaptativo(janela_eventos, multimodal=True)
-
-                # Avaliar todos os modelos e salvar métricas para todos cenários
+                # Avaliar todos os modelos (prequential: testar antes de aprender)
                 comparador.avaliar_janela(janela_eventos, janela_contador, multimodal=False)
                 comparador.avaliar_janela(janela_eventos, janela_contador, multimodal=True)
+
+                # Após avaliar, atualizar o modelo adaptativo com a janela atual (test-then-train)
+                comparador.processar_janela_adaptativo(janela_eventos, multimodal=False)
+                comparador.processar_janela_adaptativo(janela_eventos, multimodal=True)
 
                 # 🚨 NOVO: Gerar alertas para a janela (usando modelo multimodal)
                 # Verificar se geração de alertas está habilitada na configuração

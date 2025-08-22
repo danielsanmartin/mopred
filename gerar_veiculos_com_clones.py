@@ -4,13 +4,15 @@ Script para gerar um novo conjunto de veículos com clones reais.
 
 from gerador_veiculos import GeradorVeiculos
 
-def main():
+def main(config_path: str = "configs/config.json"):
     print("🚀 GERANDO VEÍCULOS COM CLONES REAIS")
     print("=" * 50)
     
     # Carregar configurações do config.json
-    import json
-    with open("configs/config.json", "r", encoding="utf-8") as f:
+    import json, os
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Arquivo de configuração não encontrado: {config_path}")
+    with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
     
     # Criar gerador
@@ -27,8 +29,9 @@ def main():
     # Gerar veículos
     df = gerador.gerar_conjunto_veiculos()
     
-    # Salvar
-    gerador.salvar_csv(df, "veiculos_gerados_com_clones.csv")
+    # Salvar na pasta definida pela configuração do cenário
+    pasta_csvs = config.get("pasta_csvs", "csvs")
+    gerador.salvar_csv(df, "veiculos_gerados_com_clones.csv", pasta_csvs)
     
     # Verificar clones
     print("\n🔍 VERIFICANDO CLONES GERADOS:")

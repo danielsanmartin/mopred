@@ -14,11 +14,9 @@ import json
 import random
 import math
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Generator
+from datetime import datetime
+from typing import Dict, List, Tuple, Generator
 import os
-import threading
-import queue
 from dataclasses import dataclass
 from enum import Enum
 
@@ -78,6 +76,9 @@ class SimuladorStreamingALPR:
         self.streaming_ativo = False
         self.pausa_streaming = False
         
+        # Aviso de semente se o ambiente não tiver sido inicializado
+        if os.environ.get("PYTHONHASHSEED") is None:
+            print("⚠️  Aviso: PYTHONHASHSEED não definido. Para reprodutibilidade total, execute via main.py ou defina PYTHONHASHSEED.")
         print(f"🎬 Simulador Streaming ALPR inicializado")
         self._imprimir_config()
     

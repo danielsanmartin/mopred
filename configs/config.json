@@ -1,7 +1,7 @@
 {
   "csv_veiculos_path": "csvs/veiculos_gerados_com_clones.csv",
   "percentual_clones_identicos": 0.2,
-  "total_veiculos": 100000,
+  "total_veiculos": 3000,
   "percentual_veiculos_clonados": 0.02,
   "n_passagens_min": 2,
   "n_passagens_max": 2,
@@ -64,12 +64,18 @@
   "intervalo_infracoes_normal": [0, 3],
   "n_jobs": 4,
   "usar_smote": false,
-  "smote_k_neighbors": 5,
+  "usar_smote_adaptativo": true,
+  "usar_smote_adaptativo_basico": false,
+  "usar_smote_adaptativo_multimodal": false,
+  "rf_n_estimators": 300,
+  "rf_max_features": "sqrt",
+  "rf_max_depth": 12,
   "usar_pseudonimizacao": true,
   "salt_pseudonimizacao": "mopred_doutorado_2024_chave_secreta",
   "gerar_alertas": true,
   "limiar_alertas": 0.80,
   "identificador_sistema_alertas": "MOPRED-SC-01",
   "pasta_alertas": "alertas_gerados",
-  "pasta_csvs": "csvs"
+  "pasta_csvs": "csvs",
+  "seed": 42
 }

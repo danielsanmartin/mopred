@@ -1,0 +1,149 @@
+{
+  "csv_veiculos_path": "runs/V100k_P5_S42/csvs/veiculos_gerados_com_clones.csv",
+  "percentual_clones_identicos": 0.2,
+  "total_veiculos": 100000,
+  "percentual_veiculos_clonados": 0.05,
+  "n_passagens_min": 2,
+  "n_passagens_max": 2,
+  "intervalo_tempo_simulacao_horas": 6,
+  "timestamp_inicio": "2025-08-01T00:00:00",
+  "sensores_por_cidade": {
+    "Florianópolis": 24,
+    "Joinville": 20,
+    "Blumenau": 16,
+    "Chapecó": 16,
+    "Itajaí": 12,
+    "São José": 12,
+    "Criciúma": 12,
+    "Lages": 12,
+    "Palhoça": 10,
+    "Balneário Camboriú": 10,
+    "Jaraguá do Sul": 10,
+    "Brusque": 8,
+    "Tubarão": 8,
+    "Caçador": 6,
+    "Concórdia": 6,
+    "Xanxerê": 6,
+    "Araranguá": 4,
+    "Rio do Sul": 4,
+    "Laguna": 2,
+    "Canoinhas": 2
+  },
+  "lat_lon_por_cidade": {
+    "Florianópolis": [
+      -27.5954,
+      -48.548
+    ],
+    "Joinville": [
+      -26.3045,
+      -48.8487
+    ],
+    "Blumenau": [
+      -26.9156,
+      -49.0706
+    ],
+    "Chapecó": [
+      -27.1,
+      -52.6152
+    ],
+    "Itajaí": [
+      -26.9101,
+      -48.6705
+    ],
+    "São José": [
+      -27.6136,
+      -48.6369
+    ],
+    "Criciúma": [
+      -28.6783,
+      -49.3699
+    ],
+    "Lages": [
+      -27.815,
+      -50.3259
+    ],
+    "Palhoça": [
+      -27.6455,
+      -48.6703
+    ],
+    "Balneário Camboriú": [
+      -26.9926,
+      -48.6352
+    ],
+    "Jaraguá do Sul": [
+      -26.4852,
+      -49.0716
+    ],
+    "Brusque": [
+      -27.0968,
+      -48.9109
+    ],
+    "Tubarão": [
+      -28.4713,
+      -49.0144
+    ],
+    "Caçador": [
+      -26.7777,
+      -51.0172
+    ],
+    "Concórdia": [
+      -27.2333,
+      -52.0278
+    ],
+    "Xanxerê": [
+      -26.8753,
+      -52.4036
+    ],
+    "Araranguá": [
+      -28.9354,
+      -49.4971
+    ],
+    "Rio do Sul": [
+      -27.2156,
+      -49.6435
+    ],
+    "Laguna": [
+      -28.4845,
+      -48.7814
+    ],
+    "Canoinhas": [
+      -26.1778,
+      -50.3906
+    ]
+  },
+  "zonas_quentes": [
+    "Florianópolis",
+    "Chapecó",
+    "Criciúma"
+  ],
+  "raio_zonas_quentes": 0.2,
+  "percentual_sensores_concentrados": 0.7,
+  "chance_de_rotas_urbanas": 0.8,
+  "chance_de_rotas_intermunicipais": 0.2,
+  "min_tempo_entre_passagens_seg": 300,
+  "max_tempo_entre_passagens_seg": 7200,
+  "intervalo_infracoes_clonado": [
+    5,
+    20
+  ],
+  "intervalo_infracoes_normal": [
+    0,
+    3
+  ],
+  "n_jobs": 4,
+  "usar_smote": false,
+  "usar_smote_adaptativo": true,
+  "usar_smote_adaptativo_basico": false,
+  "usar_smote_adaptativo_multimodal": false,
+  "rf_n_estimators": 300,
+  "rf_max_features": "sqrt",
+  "rf_max_depth": 12,
+  "usar_pseudonimizacao": true,
+  "salt_pseudonimizacao": "mopred_doutorado_2024_chave_secreta",
+  "gerar_alertas": true,
+  "limiar_alertas": 0.8,
+  "identificador_sistema_alertas": "MOPRED-SC-01",
+  "pasta_alertas": "runs/V100k_P5_S42/alertas_gerados",
+  "pasta_csvs": "runs/V100k_P5_S42/csvs",
+  "seed": 42
+}
