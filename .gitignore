@@ -3,9 +3,9 @@
 /veiculos_gerados_sem_infracao.csv
 
 # Conteúdo das pastas de dados (manter as pastas, ignorar arquivos)
-csvs/*
+
 !csvs/.gitkeep
-alertas_gerados/*
+
 !alertas_gerados/.gitkeep
 
 # Ambiente virtual Python
