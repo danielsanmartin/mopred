@@ -1,5 +1,5 @@
 # MOPRED - Sistema de Detecção de Clonagem Veicular
-## Documentação Consolidada (Integrada com `docs_historicas/descricao.md`)
+
 
 > Versão 2.2.0 • Última atualização: 2025-08-22
 
